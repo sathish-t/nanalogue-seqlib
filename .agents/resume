@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Orb resume for rust-htslib.
+#
+# Runs after initial activation and whenever a paused orb wakes. This crate
+# has no long-lived services, databases, or credentials to reconnect, so
+# resume is a fast, idempotent health check that confirms the toolchain
+# installed by .agents/setup is still on PATH. It must finish in seconds.
+set -euo pipefail
+
+# Source cargo's env so the check works even in a bare shell that did not
+# inherit ~/.bash_profile. Harmless if cargo is already on PATH.
+# shellcheck disable=SC1091
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+if command -v cargo >/dev/null 2>&1; then
+    printf 'resume: cargo OK (%s)\n' "$(cargo --version)"
+else
+    echo 'resume: WARNING — cargo not found on PATH; rerun .agents/setup' >&2
+    exit 1
+fi

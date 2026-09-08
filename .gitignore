@@ -6,3 +6,6 @@ Cargo.lock
 htslib/*
 test/out.bam
 test/test_index_build.bam.csi
+
+# Amp orb portal URLs (generated per orb, never committed)
+.amp/portals/*

@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Orb setup for rust-htslib (HTSlib bindings for Rust).
+#
+# Installs the toolchain and build prerequisites a fresh orb needs to build,
+# test, lint, and format this crate, then pre-compiles the heavy C/Rust
+# dependencies (hts-sys builds HTSlib from source) so later cargo invocations
+# are fast. Designed to be idempotent: a warm run skips every install and only
+# re-checks that the cache is in place.
+#
+# The orb base image already provides: build-essential, pkg-config, cc/gcc,
+# zlib1g-dev, libbz2-dev, liblzma-dev, libcurl4-openssl-dev, libc6-dev.
+# This script adds only what is missing: clang (for the hts-sys `bindgen`
+# feature) and the Rust stable toolchain with rustfmt + clippy.
+set -euo pipefail
+
+step() { printf '\n\033[1m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*"; }
+
+# This script runs as a bare (non-login, non-interactive) shell, so it does
+# not source ~/.bash_profile or ~/.bashrc. Source cargo's env up front if a
+# previous run already installed rustup, so command -v cargo works below and
+# we don't re-run the installer on warm runs. No-op before rustup exists.
+# shellcheck disable=SC1091
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# --- System packages (clang + cmake for bindgen / from-source zlib) ---------
+# clang  — required by the hts-sys `bindgen` feature (enabled unconditionally
+#          via hts-sys/features in Cargo.toml).
+# cmake  — required when libz-sys builds zlib from source. With --all-features
+#          libz-sys gets the `static` + `zlib-ng` features (via hts-sys/static
+#          and curl-sys/static-ssl), which drives a from-source zlib build
+#          through the `cmake` Rust crate -> the cmake binary. On a warm cache
+#          libz-sys may reuse the system zlib (zlib1g-dev) and skip cmake, but
+#          a clean or fully-static build invokes it and fails without the
+#          binary installed.
+need_apt=()
+for pkg in clang cmake; do
+    if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+        need_apt+=("$pkg")
+    fi
+done
+if [ "${#need_apt[@]}" -gt 0 ]; then
+    step "apt-get install: ${need_apt[*]}"
+    sudo apt-get update -y
+    sudo apt-get install -y --no-install-recommends "${need_apt[@]}"
+else
+    step "apt packages already installed (clang present)"
+fi
+
+# --- Rust toolchain (stable + rustfmt + clippy) -----------------------------
+# rustup installs into ~/.cargo and adds `source ~/.cargo/env` to ~/.profile
+# and ~/.bashrc. But this orb's ~/.bash_profile exists and does NOT source
+# either of those, and bash login shells read ~/.bash_profile exclusively.
+# So we also wire cargo into ~/.bash_profile ourselves (see below) to ensure
+# non-interactive login shells (Amp, supervised services) get cargo on PATH.
+if ! command -v cargo >/dev/null 2>&1; then
+    step "installing rustup + stable toolchain (minimal profile)"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --profile minimal --default-toolchain stable
+    # The installer cannot update this running script's environment.
+    # shellcheck disable=SC1091
+    source "$HOME/.cargo/env"
+else
+    step "rust toolchain already present: $(cargo --version)"
+fi
+
+step "ensuring rustfmt + clippy components"
+rustup component add rustfmt clippy
+
+# Make cargo reachable from non-interactive login shells. Idempotent and
+# guarded by a marker so repeated setup runs do not duplicate the block.
+cargo_env="$HOME/.cargo/env"
+profile_marker="# rust-htslib orb: cargo on PATH for login shells"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+    step "wiring cargo into ~/.bash_profile"
+    cat >> "$HOME/.bash_profile" <<EOF
+
+$profile_marker
+if [ -f "$cargo_env" ]; then
+    . "$cargo_env"
+fi
+EOF
+fi
+
+# --- Pre-build dependencies (the expensive step we want snapshotted) -------
+# hts-sys compiles HTSlib (a large C library) from source, and the Rust
+# dependency graph is non-trivial. Building once here caches everything in
+# target/ (gitignored) so subsequent cargo build/test/clippy are fast. We warm
+# both the default feature set (what `cargo build`/`cargo test` use by default)
+# and the full feature set (what `cargo test --all-features` uses, matching CI).
+step "cargo build (default features) — warm cache"
+cargo build
+
+step "cargo build --all-features — warm cache"
+cargo build --all-features
+
+step "setup complete"
