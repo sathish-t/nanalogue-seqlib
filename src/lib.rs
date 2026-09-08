@@ -27,14 +27,9 @@
 //!
 //!
 //! let bam = bam::Reader::from_path(&"test/test.bam").unwrap();
-//! let header = bam::Header::from_template(bam.header());
 //!
 //! // print header records to the terminal, akin to samtools
-//! for (key, records) in header.to_hashmap().expect("should parse header") {
-//!     for record in records {
-//!          println!("@{}\tSN:{}\tLN:{}", key, record["SN"], record["LN"]);
-//!     }
-//! }
+//! print!("{}", std::str::from_utf8(bam.header().as_bytes()).unwrap());
 //! ```
 //!
 //! which results in the following output, equivalent to samtools.
@@ -47,13 +42,21 @@
 //! @SQ    SN:CHROMOSOME_V    LN:20924149
 //! ```
 //!
-//! We can also read directly from the BAM file and write to an output file
+//! We can also read directly from the BAM file and write to an output file,
+//! constructing a header containing its reference sequences:
 //!
 //! ```
 //! use rust_htslib::{bam, bam::Read};
 //!
 //! let mut bam = bam::Reader::from_path(&"test/test.bam").unwrap();
-//! let header = bam::Header::from_template(bam.header());
+//! let mut header = bam::Header::new();
+//! for (tid, name) in bam.header().target_names().iter().enumerate() {
+//!     header.push_record(
+//!         bam::header::HeaderRecord::new(b"SQ")
+//!             .push_tag(b"SN", std::str::from_utf8(name).unwrap())
+//!             .push_tag(b"LN", bam.header().target_len(tid as u32).unwrap()),
+//!     );
+//! }
 //! let mut out = bam::Writer::from_path(&"test/out.bam", &header, bam::Format::Bam).unwrap();
 //!
 //! // copy reverse reads to new BAM file

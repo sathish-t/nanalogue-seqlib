@@ -1452,6 +1452,18 @@ mod tests {
     use std::path::Path;
     use std::str;
 
+    fn reference_header(view: &HeaderView) -> Header {
+        let mut header = Header::new();
+        for (tid, name) in view.target_names().iter().enumerate() {
+            header.push_record(
+                HeaderRecord::new(b"SQ")
+                    .push_tag(b"SN", str::from_utf8(name).unwrap())
+                    .push_tag(b"LN", view.target_len(tid as u32).unwrap()),
+            );
+        }
+        header
+    }
+
     type GoldType = (
         [&'static [u8]; 6],
         [u16; 6],
@@ -2165,9 +2177,8 @@ CCCCCCCCCCCCCCCCCCC"[..],
     }
 
     #[test]
-    fn test_copy_template() {
-        // Verify that BAM headers are transmitted correctly when using an existing BAM as a
-        // template for headers.
+    fn test_write_reference_header() {
+        // Verify that the reference sequence header survives writing.
 
         let tmp = tempfile::Builder::new()
             .prefix("rust-htslib")
@@ -2179,12 +2190,9 @@ CCCCCCCCCCCCCCCCCCC"[..],
         let mut input_bam = Reader::from_path("test/test.bam").expect("Error opening file.");
 
         {
-            let mut bam = Writer::from_path(
-                &bampath,
-                &Header::from_template(input_bam.header()),
-                Format::Bam,
-            )
-            .expect("Error opening file.");
+            let mut bam =
+                Writer::from_path(&bampath, &reference_header(input_bam.header()), Format::Bam)
+                    .expect("Error opening file.");
 
             for rec in input_bam.records() {
                 bam.write(&rec.unwrap()).expect("Failed to write record.");
@@ -2352,7 +2360,7 @@ CCCCCCCCCCCCCCCCCCC"[..],
                 let output_bam_path = tmp.path().join("test.bam");
                 {
                     let mut reader = Reader::from_path(input_bam_path).unwrap();
-                    let header = Header::from_template(reader.header());
+                    let header = reference_header(reader.header());
                     let mut writer =
                         Writer::from_path(&output_bam_path, &header, Format::Bam).unwrap();
                     writer.set_compression_level(*level).unwrap();
@@ -2408,7 +2416,7 @@ CCCCCCCCCCCCCCCCCCC"[..],
             F: Fn(&record::Record) -> Option<bool>,
         {
             let mut bam_reader = Reader::from_path(bamfile).unwrap(); // internal functions, just unwrap
-            let header = header::Header::from_template(bam_reader.header());
+            let header = reference_header(bam_reader.header());
             let mut sam_writer = Writer::from_path(samfile, &header, Format::Sam).unwrap();
             for record in bam_reader.records() {
                 if record.is_err() {
@@ -2940,11 +2948,13 @@ CCCCCCCCCCCCCCCCCCC"[..],
     #[test]
     fn test_bam_header_sync() {
         let reader = Reader::from_path("test/test_issue_156_no_text.bam").unwrap();
-        let header_hashmap = Header::from_template(reader.header()).to_hashmap().unwrap();
-        let header_refseqs = header_hashmap.get("SQ".into()).unwrap();
-
-        assert_eq!(header_refseqs[0].get("SN").unwrap(), "ref_1",);
-        assert_eq!(header_refseqs[0].get("LN").unwrap(), "10000000",);
+        let header = reader.header();
+        assert_eq!(header.tid2name(0), b"ref_1");
+        assert_eq!(header.target_len(0), Some(10000000));
+        let text = str::from_utf8(header.as_bytes()).unwrap();
+        assert!(text
+            .lines()
+            .any(|line| line == "@SQ\tSN:ref_1\tLN:10000000"));
     }
 
     #[test]
