@@ -22,6 +22,16 @@ pub struct IterAlignedPairsFull {
 impl Iterator for IterAlignedPairsFull {
     type Item = [Option<i64>; 2];
     fn next(&mut self) -> Option<Self::Item> {
+        if self.cigar.is_empty() {
+            return None;
+        }
+        assert!(self.genome_pos >= 0, "negative position detected!");
+        assert!(self.read_pos >= 0, "negative position detected!");
+        assert!(
+            self.genome_pos < i64::MAX,
+            "overflow detected in positions!"
+        );
+        assert!(self.read_pos < i64::MAX, "overflow detected in positions!");
         if self.remaining_match_bp > 0 {
             self.remaining_match_bp -= 1;
             self.genome_pos += 1;
@@ -43,6 +53,12 @@ impl Iterator for IterAlignedPairsFull {
             let entry = self.cigar[self.cigar_index];
             match entry {
                 Cigar::Match(len) | Cigar::Equal(len) | Cigar::Diff(len) => {
+                    assert!(
+                        self.genome_pos < i64::MAX,
+                        "overflow detected in positions!"
+                    );
+                    assert!(self.read_pos < i64::MAX, "overflow detected in positions!");
+                    assert!(len > 0, "malformed cigar detected!");
                     self.genome_pos += 1;
                     self.read_pos += 1;
                     self.remaining_match_bp = len - 1;
@@ -50,12 +66,19 @@ impl Iterator for IterAlignedPairsFull {
                     return Some([Some(self.read_pos - 1), Some(self.genome_pos - 1)]);
                 }
                 Cigar::Ins(len) | Cigar::SoftClip(len) => {
+                    assert!(self.read_pos < i64::MAX, "overflow detected in positions!");
+                    assert!(len > 0, "malformed cigar detected!");
                     self.read_pos += 1;
                     self.remaining_ins_bp = len - 1;
                     self.cigar_index += 1;
                     return Some([Some(self.read_pos - 1), None]);
                 }
                 Cigar::Del(len) | Cigar::RefSkip(len) => {
+                    assert!(
+                        self.genome_pos < i64::MAX,
+                        "overflow detected in positions!"
+                    );
+                    assert!(len > 0, "malformed cigar detected!");
                     self.genome_pos += 1;
                     self.remaining_del_bp = len - 1;
                     self.cigar_index += 1;

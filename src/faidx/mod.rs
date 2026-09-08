@@ -20,6 +20,9 @@ pub fn build(
     path: impl Into<std::path::PathBuf>,
 ) -> Result<(), std::boxed::Box<dyn std::error::Error>> {
     let path = path.into();
+    if path.as_os_str().is_empty() {
+        return Err(Box::new(Error::FaidxBuildFailed { path }));
+    }
     let os_path = std::ffi::CString::new(path.display().to_string())?;
     let rc = unsafe { htslib::fai_build(os_path.as_ptr()) };
     if rc < 0 {
@@ -48,5 +51,16 @@ mod tests {
     fn nul_in_path() {
         let error = build("invalid\0.fa").unwrap_err();
         assert!(error.downcast_ref::<std::ffi::NulError>().is_some());
+    }
+
+    #[test]
+    fn empty_path() {
+        let error = build("").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<Error>(),
+            Some(&Error::FaidxBuildFailed {
+                path: std::path::PathBuf::new()
+            })
+        );
     }
 }

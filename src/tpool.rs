@@ -17,6 +17,9 @@ pub struct ThreadPool {
 impl ThreadPool {
     /// Create a new thread pool with `n_threads` threads.
     pub fn new(n_threads: u32) -> Result<ThreadPool> {
+        if n_threads == 0 || n_threads >= 256 {
+            return Err(Error::ThreadPool);
+        }
         let ret = unsafe { htslib::hts_tpool_init(n_threads as i32) };
 
         if ret.is_null() {
@@ -51,5 +54,16 @@ impl Drop for InnerThreadPool {
         }
 
         self.inner.pool = std::ptr::null_mut();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_thread_counts_outside_supported_range() {
+        assert_eq!(ThreadPool::new(0).unwrap_err(), Error::ThreadPool);
+        assert_eq!(ThreadPool::new(256).unwrap_err(), Error::ThreadPool);
     }
 }
