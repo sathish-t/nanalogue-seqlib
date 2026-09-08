@@ -65,33 +65,7 @@
 //! }
 //! ```
 //!
-//! Pileups can be performed with
-//!
-//! ```
-//! use rust_htslib::{bam, bam::Read};
-//!
-//! let mut bam = bam::Reader::from_path(&"test/test.bam").unwrap();
-//!
-//! // pileup over all covered sites
-//! for p in bam.pileup() {
-//!     let pileup = p.unwrap();
-//!     println!("{}:{} depth {}", pileup.tid(), pileup.pos(), pileup.depth());
-//!
-//!     for alignment in pileup.alignments() {
-//!         if !alignment.is_del() && !alignment.is_refskip() {
-//!             println!("Base {}", alignment.record().seq()[alignment.qpos().unwrap()]);
-//!         }
-//!         // mark indel start
-//!         match alignment.indel() {
-//!             bam::pileup::Indel::Ins(len) => println!("Insertion of length {} between this and next position.", len),
-//!             bam::pileup::Indel::Del(len) => println!("Deletion of length {} between this and next position.", len),
-//!             bam::pileup::Indel::None => ()
-//!         }
-//!     }
-//! }
-//! ```
-//!
-//! In both cases, indexed BAM files can be seeked for specific regions using [`fetch`](bam/struct.IndexedReader.html#method.fetch), constraining either the record iterator or the pileups:
+//! Indexed BAM files can be seeked for specific regions using [`fetch`](bam/struct.IndexedReader.html#method.fetch), constraining the record iterator:
 //!
 //! ```
 //! use rust_htslib::{bam, bam::Read};
@@ -99,14 +73,13 @@
 //! let mut bam = bam::IndexedReader::from_path(&"test/test.bam").unwrap();
 //!
 //! bam.fetch(("CHROMOSOME_I", 0, 20)).unwrap();
-//! // afterwards, read or pileup in this region
+//! // afterwards, read records in this region
 //! ```
 //!
 //! See
 //! * [`fetch`](bam/struct.IndexedReader.html#method.fetch)
 //! * [`records`](bam/struct.IndexedReader.html#method.records)
 //! * [`read`](bam/struct.IndexedReader.html#method.read)
-//! * [`pileup`](bam/struct.IndexedReader.html#method.pileup)
 
 #[macro_use]
 extern crate custom_derive;

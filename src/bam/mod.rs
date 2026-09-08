@@ -8,7 +8,6 @@
 pub mod ext;
 pub mod header;
 pub mod index;
-pub mod pileup;
 pub mod record;
 
 use std::ffi;
@@ -156,9 +155,6 @@ pub trait Read: Sized {
     /// ```
     fn rc_records(&mut self) -> RcRecords<'_, Self>;
 
-    /// Iterator over pileups.
-    fn pileup(&mut self) -> pileup::Pileups<'_, Self>;
-
     /// Return the htsFile struct
     fn htsfile(&self) -> *mut htslib::htsFile;
 
@@ -299,20 +295,6 @@ impl Reader {
         })
     }
 
-    extern "C" fn pileup_read(
-        data: *mut ::std::os::raw::c_void,
-        record: *mut htslib::bam1_t,
-    ) -> i32 {
-        let mut _self = unsafe { (data as *mut Self).as_mut().unwrap() };
-        unsafe {
-            htslib::sam_read1(
-                _self.htsfile(),
-                _self.header().inner_ptr() as *mut hts_sys::sam_hdr_t,
-                record,
-            )
-        }
-    }
-
     /// Iterator over the records between the (optional) virtual offsets `start` and `end`
     ///
     /// # Arguments
@@ -399,17 +381,6 @@ impl Read for Reader {
             reader: self,
             record: Rc::new(record::Record::new()),
         }
-    }
-
-    fn pileup(&mut self) -> pileup::Pileups<'_, Self> {
-        let _self = self as *const Self;
-        let itr = unsafe {
-            htslib::bam_plp_init(
-                Some(Reader::pileup_read),
-                _self as *mut ::std::os::raw::c_void,
-            )
-        };
-        pileup::Pileups::new(self, itr)
     }
 
     fn htsfile(&self) -> *mut htslib::htsFile {
@@ -780,23 +751,6 @@ impl IndexedReader {
         }
     }
 
-    extern "C" fn pileup_read(
-        data: *mut ::std::os::raw::c_void,
-        record: *mut htslib::bam1_t,
-    ) -> i32 {
-        let _self = unsafe { (data as *mut Self).as_mut().unwrap() };
-        match _self.itr {
-            Some(itr) => itr_next(_self.htsfile, itr, record), // read fetched region
-            None => unsafe {
-                htslib::sam_read1(
-                    _self.htsfile,
-                    _self.header().inner_ptr() as *mut hts_sys::sam_hdr_t,
-                    record,
-                )
-            }, // ordinary reading
-        }
-    }
-
     /// Set the reference path for reading CRAM files.
     ///
     /// # Arguments
@@ -996,17 +950,6 @@ impl Read for IndexedReader {
             reader: self,
             record: Rc::new(record::Record::new()),
         }
-    }
-
-    fn pileup(&mut self) -> pileup::Pileups<'_, Self> {
-        let _self = self as *const Self;
-        let itr = unsafe {
-            htslib::bam_plp_init(
-                Some(IndexedReader::pileup_read),
-                _self as *mut ::std::os::raw::c_void,
-            )
-        };
-        pileup::Pileups::new(self, itr)
     }
 
     fn htsfile(&self) -> *mut htslib::htsFile {
@@ -2254,42 +2197,6 @@ CCCCCCCCCCCCCCCCCCC"[..],
         }
 
         tmp.close().expect("Failed to delete temp dir");
-    }
-
-    #[test]
-    fn test_pileup() {
-        let (_, _, seqs, quals, _) = gold();
-
-        let mut bam = Reader::from_path("test/test.bam").expect("Error opening file.");
-        let pileups = bam.pileup();
-        for pileup in pileups.take(26) {
-            let _pileup = pileup.expect("Expected successful pileup.");
-            let pos = _pileup.pos() as usize;
-            assert_eq!(_pileup.depth(), 6);
-            assert!(_pileup.tid() == 0);
-            for (i, a) in _pileup.alignments().enumerate() {
-                assert_eq!(a.indel(), pileup::Indel::None);
-                let qpos = a.qpos().unwrap();
-                assert_eq!(qpos, pos - 1);
-                assert_eq!(a.record().seq()[qpos], seqs[i][qpos]);
-                assert_eq!(a.record().qual()[qpos], quals[i][qpos] - 33);
-            }
-        }
-    }
-
-    #[test]
-    fn test_idx_pileup() {
-        let mut bam = IndexedReader::from_path("test/test.bam").expect("Error opening file.");
-        // read without fetch
-        for pileup in bam.pileup() {
-            pileup.unwrap();
-        }
-        // go back again
-        let tid = bam.header().tid(b"CHROMOSOME_I").unwrap();
-        bam.fetch((tid, 0, 5)).unwrap();
-        for p in bam.pileup() {
-            println!("{}", p.unwrap().pos())
-        }
     }
 
     #[test]
