@@ -38,7 +38,7 @@ with these compression methods, you can deactivate these features to reduce you 
 rust-htslib = { version = "*", default-features = false }
 ```
 
-`rust-htslib` has optional support for `serde`, to allow (de)serialization of `bam::Record` via any serde-supported format.
+`rust-htslib` has optional support for `serde`, to allow (de)serialization of `bam::record::Cigar` and `bam::record::CigarString` via any serde-supported format.
 
 Http access to files is available with the `curl` feature.
 

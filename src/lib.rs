@@ -120,8 +120,6 @@ extern crate serde;
 #[cfg(test)] // <-- not needed in examples + integration tests
 #[macro_use]
 extern crate pretty_assertions;
-#[cfg(all(test, feature = "serde_feature"))]
-extern crate serde_json;
 
 pub mod bam;
 pub mod errors;

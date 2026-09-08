@@ -5,15 +5,11 @@
 
 //! Module for working with SAM, BAM, and CRAM files.
 
-pub mod buffer;
 pub mod ext;
 pub mod header;
 pub mod index;
 pub mod pileup;
 pub mod record;
-
-#[cfg(feature = "serde_feature")]
-pub mod record_serde;
 
 use std::ffi;
 use std::os::raw::c_char;
@@ -30,7 +26,6 @@ use crate::htslib;
 use crate::tpool::ThreadPool;
 use crate::utils::path_as_bytes;
 
-pub use crate::bam::buffer::RecordBuffer;
 pub use crate::bam::header::Header;
 pub use crate::bam::record::Record;
 use hts_sys::{hts_fmt_option, sam_fields};
