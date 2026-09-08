@@ -124,11 +124,7 @@ extern crate pretty_assertions;
 extern crate serde_json;
 
 pub mod bam;
-pub mod bcf;
-pub mod bgzf;
 pub mod errors;
-pub mod faidx;
 pub mod htslib;
-pub mod tbx;
 pub mod tpool;
 pub mod utils;
