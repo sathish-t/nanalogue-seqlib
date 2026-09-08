@@ -38,21 +38,12 @@ with these compression methods, you can deactivate these features to reduce you 
 rust-htslib = { version = "*", default-features = false }
 ```
 
-`rust-htslib` has optional support for `serde`, to allow (de)serialization of `bam::record::Cigar` and `bam::record::CigarString` via any serde-supported format.
-
 Http access to files is available with the `curl` feature.
 
 Beta-level S3 and Google Cloud Storge support is available with the `s3` and `gcs` features.
 
 `rust-htslib` can optionally use `bindgen` to generate bindings to htslib. This can slow down the build substantially. Enabling the `bindgen` feature will 
 cause `hts-sys` to use a create a binding file for your architecture. Pre-built bindings are supplied for Mac and Linux. The `bindgen` feature on Windows is untested - please file a bug if you need help.
-
-
-
-```toml
-[dependencies]
-rust-htslib = { version = "*", features = ["serde_feature"] }
-```
 
 For more information, please see the [docs](https://docs.rs/rust-htslib).
 

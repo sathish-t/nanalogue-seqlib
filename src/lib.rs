@@ -90,13 +90,6 @@ extern crate custom_derive;
 #[macro_use]
 extern crate newtype_derive;
 
-#[cfg(feature = "serde_feature")]
-extern crate serde;
-
-#[cfg(test)] // <-- not needed in examples + integration tests
-#[macro_use]
-extern crate pretty_assertions;
-
 pub mod bam;
 pub mod errors;
 pub mod htslib;

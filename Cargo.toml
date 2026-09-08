@@ -24,7 +24,6 @@ derive-new = "0.7"
 hts-sys = {version = "2.2.0", default-features = false, features = ["bindgen"]}
 libc = "0.2"
 newtype_derive = "0.1"
-serde = {version = "^1", optional = true, features = ["derive"]}
 thiserror = {version = "^2" }
 url = "2.5"
 
@@ -37,9 +36,7 @@ gcs = ["hts-sys/gcs"]
 libdeflate = ["hts-sys/libdeflate"]
 lzma = ["hts-sys/lzma"]
 s3 = ["hts-sys/s3"]
-serde_feature = ["serde", "bio-types/serde"]
 static = ["hts-sys/static"]
 
 [dev-dependencies]
-pretty_assertions = "1.4"
 tempfile = "3.1.0"

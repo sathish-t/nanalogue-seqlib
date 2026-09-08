@@ -21,8 +21,6 @@ use crate::bam::HeaderView;
 use crate::errors::Result;
 use crate::htslib;
 use crate::utils;
-#[cfg(feature = "serde_feature")]
-use serde::{self, Deserialize, Serialize};
 
 use bio_types::alignment::{Alignment, AlignmentMode, AlignmentOperation};
 use bio_types::genome;
@@ -1811,7 +1809,6 @@ impl ops::Index<usize> for Seq<'_> {
 unsafe impl Send for Seq<'_> {}
 unsafe impl Sync for Seq<'_> {}
 
-#[cfg_attr(feature = "serde_feature", derive(Serialize, Deserialize))]
 #[derive(PartialEq, PartialOrd, Eq, Debug, Clone, Copy, Hash)]
 pub enum Cigar {
     Match(u32),    // M
@@ -1903,7 +1900,6 @@ custom_derive! {
     ///    println!("{}", op);
     /// }
     /// ```
-    #[cfg_attr(feature = "serde_feature", derive(Serialize, Deserialize))]
     #[derive(NewtypeDeref,
             NewtypeDerefMut,
              NewtypeIndex(usize),
@@ -2531,7 +2527,7 @@ mod tests {
             Cigar::Equal(2),
         ])
         .into_view(2);
-        assert_eq!(c09.read_pos(vpos, false, true).is_err(), true);
+        assert!(c09.read_pos(vpos, false, true).is_err());
 
         // Deletion right before variant position
         // ref:       00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15
@@ -2599,7 +2595,7 @@ mod tests {
         // qpos:               00 01 02
         let c15 =
             CigarString(vec![Cigar::Pad(5), Cigar::HardClip(1), Cigar::Equal(3)]).into_view(3);
-        assert_eq!(c15.read_pos(vpos, false, false).is_err(), true);
+        assert!(c15.read_pos(vpos, false, false).is_err());
 
         // only HardClip and Pad operations
         // c16: 7H5P2H
@@ -2622,19 +2618,19 @@ mod tests {
         let mut rec = Record::new();
 
         rec.set_paired();
-        assert_eq!(rec.is_paired(), true);
+        assert!(rec.is_paired());
 
         rec.set_supplementary();
-        assert_eq!(rec.is_supplementary(), true);
-        assert_eq!(rec.is_supplementary(), true);
+        assert!(rec.is_supplementary());
+        assert!(rec.is_supplementary());
 
         rec.unset_paired();
-        assert_eq!(rec.is_paired(), false);
-        assert_eq!(rec.is_supplementary(), true);
+        assert!(!rec.is_paired());
+        assert!(rec.is_supplementary());
 
         rec.unset_supplementary();
-        assert_eq!(rec.is_paired(), false);
-        assert_eq!(rec.is_supplementary(), false);
+        assert!(!rec.is_paired());
+        assert!(!rec.is_supplementary());
     }
 
     #[test]
