@@ -92,6 +92,7 @@ extern crate newtype_derive;
 
 pub mod bam;
 pub mod errors;
+pub mod faidx;
 pub mod htslib;
 pub mod tpool;
 pub mod utils;
