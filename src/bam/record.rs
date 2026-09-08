@@ -4,7 +4,6 @@
 // except according to those terms.
 
 use std::convert::TryFrom;
-use std::convert::TryInto;
 use std::ffi;
 use std::fmt;
 use std::marker::PhantomData;
@@ -149,37 +148,6 @@ impl Record {
             own: false,
             cigar: None,
             header: None,
-        }
-    }
-
-    // Create a BAM record from a line SAM text. SAM slice need not be 0-terminated.
-    pub fn from_sam(header_view: &HeaderView, sam: &[u8]) -> Result<Record> {
-        let mut record = Self::new();
-
-        let mut sam_copy = Vec::with_capacity(sam.len() + 1);
-        sam_copy.extend(sam);
-        sam_copy.push(0);
-
-        let mut sam_string = htslib::kstring_t {
-            s: sam_copy.as_ptr() as *mut c_char,
-            l: sam_copy.len(),
-            m: sam_copy.len(),
-        };
-
-        let succ = unsafe {
-            htslib::sam_parse1(
-                &mut sam_string,
-                header_view.inner_ptr() as *mut htslib::bam_hdr_t,
-                record.inner_ptr_mut(),
-            )
-        };
-
-        if succ == 0 {
-            Ok(record)
-        } else {
-            Err(Error::BamParseSAM {
-                rec: str::from_utf8(&sam_copy).unwrap().to_owned(),
-            })
         }
     }
 
@@ -1252,48 +1220,6 @@ impl Record {
         }
     }
 
-    /// Access the base modifications associated with this Record through the MM tag.
-    /// Example:
-    /// ```
-    ///    use rust_htslib::bam::{Read, Reader, Record};
-    ///    let mut bam = Reader::from_path("test/base_mods/MM-orient.sam").unwrap();
-    ///    let mut mod_count = 0;
-    ///    for r in bam.records() {
-    ///        let record = r.unwrap();
-    ///        if let Ok(mods) = record.basemods_iter() {
-    ///            // print metadata for the modifications present in this record
-    ///            for mod_code in mods.recorded() {
-    ///                if let Ok(mod_metadata) = mods.query_type(*mod_code) {
-    ///                    println!("mod found with code {}/{} flags: [{} {} {}]",
-    ///                              mod_code, *mod_code as u8 as char,
-    ///                              mod_metadata.strand, mod_metadata.implicit, mod_metadata.canonical as u8 as char);
-    ///                }
-    ///            }
-    ///
-    ///            // iterate over the modifications in this record
-    ///            // the modifications are returned as a tuple with the
-    ///            // position within SEQ and an hts_base_mod struct
-    ///            for res in mods {
-    ///                if let Ok( (position, m) ) = res {
-    ///                    println!("{} {},{}", position, m.modified_base as u8 as char, m.qual);
-    ///                    mod_count += 1;
-    ///                }
-    ///            }
-    ///        };
-    ///    }
-    ///    assert_eq!(mod_count, 14);
-    /// ```
-    pub fn basemods_iter(&'_ self) -> Result<BaseModificationsIter<'_>> {
-        BaseModificationsIter::new(self)
-    }
-
-    /// An iterator that returns all of the modifications for each position as a vector.
-    /// This is useful for the case where multiple possible modifications can be annotated
-    /// at a single position (for example a C could be 5-mC or 5-hmC)
-    pub fn basemods_position_iter(&'_ self) -> Result<BaseModificationsPositionIter<'_>> {
-        BaseModificationsPositionIter::new(self)
-    }
-
     /// Infer read pair orientation from record. Returns `SequenceReadPairOrientation::None` if record
     /// is not paired, mates are not mapping to the same contig, or mates start at the
     /// same position.
@@ -1462,12 +1388,8 @@ impl genome::AbstractInterval for Record {
 /// };
 ///
 /// //Set up BAM record
-/// let bam_header = bam::Header::new();
-/// let mut record = bam::Record::from_sam(
-///     &mut bam::HeaderView::from_header(&bam_header),
-///     "ali1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tFFFF".as_bytes(),
-/// )
-/// .unwrap();
+/// let mut record = bam::Record::new();
+/// record.set(b"ali1", None, b"ACGT", &[37; 4]);
 ///
 /// // Add an integer field
 /// let aux_integer_field = Aux::I32(1234);
@@ -1587,11 +1509,8 @@ impl AuxArrayElement for f32 {
 /// };
 ///
 /// //Set up BAM record
-/// let bam_header = bam::Header::new();
-/// let mut record = bam::Record::from_sam(
-///     &mut bam::HeaderView::from_header(&bam_header),
-///     "ali1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tFFFF".as_bytes(),
-/// ).unwrap();
+/// let mut record = bam::Record::new();
+/// record.set(b"ali1", None, b"ACGT", &[37; 4]);
 ///
 /// let data = vec![0.4, 0.3, 0.2, 0.1];
 /// let slice_of_data = &data;
@@ -2463,242 +2382,6 @@ impl fmt::Display for CigarStringView {
     }
 }
 
-pub struct BaseModificationMetadata {
-    pub strand: i32,
-    pub implicit: i32,
-    pub canonical: u8,
-}
-
-/// struct containing the internal state required to access
-/// the base modifications for a bam::Record
-pub struct BaseModificationState<'a> {
-    record: &'a Record,
-    state: *mut htslib::hts_base_mod_state,
-    buffer: Vec<htslib::hts_base_mod>,
-    buffer_pos: i32,
-}
-
-impl BaseModificationState<'_> {
-    /// Initialize a new BaseModification struct from a bam::Record
-    /// This function allocates memory for the state structure
-    /// and initializes the iterator to the start of the modification
-    /// records.
-    fn new(r: &Record) -> Result<BaseModificationState<'_>> {
-        let mut bm = unsafe {
-            BaseModificationState {
-                record: r,
-                state: hts_sys::hts_base_mod_state_alloc(),
-                buffer: Vec::new(),
-                buffer_pos: -1,
-            }
-        };
-
-        if bm.state.is_null() {
-            panic!("Unable to allocate memory for hts_base_mod_state");
-        }
-
-        // parse the MM tag to initialize the state
-        unsafe {
-            let ret = hts_sys::bam_parse_basemod(bm.record.inner_ptr(), bm.state);
-            if ret != 0 {
-                return Err(Error::BamBaseModificationTagNotFound);
-            }
-        }
-
-        let types = bm.recorded();
-        bm.buffer.reserve(types.len());
-        Ok(bm)
-    }
-
-    pub fn buffer_next_mods(&mut self) -> Result<usize> {
-        unsafe {
-            let ret = hts_sys::bam_next_basemod(
-                self.record.inner_ptr(),
-                self.state,
-                self.buffer.as_mut_ptr(),
-                self.buffer.capacity() as i32,
-                &mut self.buffer_pos,
-            );
-
-            if ret < 0 {
-                return Err(Error::BamBaseModificationIterationFailed);
-            }
-
-            // the htslib API won't write more than buffer.capacity() mods to the output array but it will
-            // return the actual number of modifications found. We return an error to the caller
-            // in the case where there was insufficient storage to return all mods.
-            if ret as usize > self.buffer.capacity() {
-                return Err(Error::BamBaseModificationTooManyMods);
-            }
-
-            // we read the modifications directly into the vector, which does
-            // not update the length so needs to be manually set
-            self.buffer.set_len(ret as usize);
-
-            Ok(ret as usize)
-        }
-    }
-
-    /// Return an array containing the modification codes listed for this record.
-    /// Positive values are ascii character codes (eg m), negative values are chEBI codes.
-    pub fn recorded<'a>(&self) -> &'a [i32] {
-        unsafe {
-            let mut n: i32 = 0;
-            let data_ptr: *const i32 = hts_sys::bam_mods_recorded(self.state, &mut n);
-
-            // htslib should not return a null pointer, even when there are no base mods
-            if data_ptr.is_null() {
-                panic!("Unable to obtain pointer to base modifications");
-            }
-            assert!(n >= 0);
-            slice::from_raw_parts(data_ptr, n as usize)
-        }
-    }
-
-    /// Return metadata for the specified character code indicating the strand
-    /// the base modification was called on, whether the tag uses implicit mode
-    /// and the ascii code for the canonical base.
-    /// If there are multiple modifications with the same code this will return the data
-    /// for the first mod.  See https://github.com/samtools/htslib/issues/1635
-    pub fn query_type(&self, code: i32) -> Result<BaseModificationMetadata> {
-        unsafe {
-            let mut strand: i32 = 0;
-            let mut implicit: i32 = 0;
-            // This may be i8 or u8 in hts_sys.
-            let mut canonical: c_char = 0;
-
-            let ret = hts_sys::bam_mods_query_type(
-                self.state,
-                code,
-                &mut strand,
-                &mut implicit,
-                &mut canonical,
-            );
-            if ret == -1 {
-                Err(Error::BamBaseModificationTypeNotFound)
-            } else {
-                Ok(BaseModificationMetadata {
-                    strand,
-                    implicit,
-                    canonical: canonical.try_into().unwrap(),
-                })
-            }
-        }
-    }
-}
-
-impl Drop for BaseModificationState<'_> {
-    fn drop<'a>(&mut self) {
-        unsafe {
-            hts_sys::hts_base_mod_state_free(self.state);
-        }
-    }
-}
-
-/// Iterator over the base modifications that returns
-/// a vector for all of the mods at each position
-pub struct BaseModificationsPositionIter<'a> {
-    mod_state: BaseModificationState<'a>,
-}
-
-impl BaseModificationsPositionIter<'_> {
-    fn new(r: &Record) -> Result<BaseModificationsPositionIter<'_>> {
-        let state = BaseModificationState::new(r)?;
-        Ok(BaseModificationsPositionIter { mod_state: state })
-    }
-
-    pub fn recorded<'a>(&self) -> &'a [i32] {
-        self.mod_state.recorded()
-    }
-
-    pub fn query_type(&self, code: i32) -> Result<BaseModificationMetadata> {
-        self.mod_state.query_type(code)
-    }
-}
-
-impl Iterator for BaseModificationsPositionIter<'_> {
-    type Item = Result<(i32, Vec<hts_sys::hts_base_mod>)>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let ret = self.mod_state.buffer_next_mods();
-
-        // Three possible things happened in buffer_next_mods:
-        // 1. the htslib API call was successful but there are no more mods
-        // 2. ths htslib API call was successful and we read some mods
-        // 3. the htslib API call failed, we propogate the error wrapped in an option
-        match ret {
-            Ok(num_mods) => {
-                if num_mods == 0 {
-                    None
-                } else {
-                    let data = (self.mod_state.buffer_pos, self.mod_state.buffer.clone());
-                    Some(Ok(data))
-                }
-            }
-            Err(e) => Some(Err(e)),
-        }
-    }
-}
-
-/// Iterator over the base modifications that returns
-/// the next modification found, one by one
-pub struct BaseModificationsIter<'a> {
-    mod_state: BaseModificationState<'a>,
-    buffer_idx: usize,
-}
-
-impl BaseModificationsIter<'_> {
-    fn new(r: &Record) -> Result<BaseModificationsIter<'_>> {
-        let state = BaseModificationState::new(r)?;
-        Ok(BaseModificationsIter {
-            mod_state: state,
-            buffer_idx: 0,
-        })
-    }
-
-    pub fn recorded<'a>(&self) -> &'a [i32] {
-        self.mod_state.recorded()
-    }
-
-    pub fn query_type(&self, code: i32) -> Result<BaseModificationMetadata> {
-        self.mod_state.query_type(code)
-    }
-}
-
-impl Iterator for BaseModificationsIter<'_> {
-    type Item = Result<(i32, hts_sys::hts_base_mod)>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.buffer_idx == self.mod_state.buffer.len() {
-            // need to use the internal state to read the next
-            // set of modifications into the buffer
-            let ret = self.mod_state.buffer_next_mods();
-
-            match ret {
-                Ok(num_mods) => {
-                    if num_mods == 0 {
-                        // done iterating
-                        return None;
-                    } else {
-                        // we read some mods, reset the position in the buffer then fall through
-                        self.buffer_idx = 0;
-                    }
-                }
-                Err(e) => return Some(Err(e)),
-            }
-        }
-
-        // if we got here when there are mods buffered that we haven't emitted yet
-        assert!(self.buffer_idx < self.mod_state.buffer.len());
-        let data = (
-            self.mod_state.buffer_pos,
-            self.mod_state.buffer[self.buffer_idx],
-        );
-        self.buffer_idx += 1;
-        Some(Ok(data))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3167,84 +2850,6 @@ mod alignment_cigar_tests {
             let cigar_parse = CigarString::try_from(cigar_str)
                 .unwrap_or_else(|_| panic!("Unable to parse cigar: {}", cigar_str));
             assert_eq!(&cigar_parse, truth);
-        }
-    }
-}
-
-#[cfg(test)]
-mod basemod_tests {
-    use crate::bam::{Read, Reader};
-
-    #[test]
-    pub fn test_count_recorded() {
-        let mut bam = Reader::from_path("test/base_mods/MM-double.sam").unwrap();
-
-        for r in bam.records() {
-            let record = r.unwrap();
-            if let Ok(mods) = record.basemods_iter() {
-                let n = mods.recorded().len();
-                assert_eq!(n, 3);
-            };
-        }
-    }
-
-    #[test]
-    pub fn test_query_type() {
-        let mut bam = Reader::from_path("test/base_mods/MM-orient.sam").unwrap();
-
-        let mut n_fwd = 0;
-        let mut n_rev = 0;
-
-        for r in bam.records() {
-            let record = r.unwrap();
-            if let Ok(mods) = record.basemods_iter() {
-                for mod_code in mods.recorded() {
-                    if let Ok(mod_metadata) = mods.query_type(*mod_code) {
-                        if mod_metadata.strand == 0 {
-                            n_fwd += 1;
-                        }
-                        if mod_metadata.strand == 1 {
-                            n_rev += 1;
-                        }
-                    }
-                }
-            };
-        }
-        assert_eq!(n_fwd, 2);
-        assert_eq!(n_rev, 2);
-    }
-
-    #[test]
-    pub fn test_mod_iter() {
-        let mut bam = Reader::from_path("test/base_mods/MM-double.sam").unwrap();
-        let expected_positions = [1, 7, 12, 13, 13, 22, 30, 31];
-        let mut i = 0;
-
-        for r in bam.records() {
-            let record = r.unwrap();
-            for res in record.basemods_iter().unwrap().flatten() {
-                let (position, _m) = res;
-                assert_eq!(position, expected_positions[i]);
-                i += 1;
-            }
-        }
-    }
-
-    #[test]
-    pub fn test_position_iter() {
-        let mut bam = Reader::from_path("test/base_mods/MM-double.sam").unwrap();
-        let expected_positions = [1, 7, 12, 13, 22, 30, 31];
-        let expected_counts = [1, 1, 1, 2, 1, 1, 1];
-        let mut i = 0;
-
-        for r in bam.records() {
-            let record = r.unwrap();
-            for res in record.basemods_position_iter().unwrap().flatten() {
-                let (position, elements) = res;
-                assert_eq!(position, expected_positions[i]);
-                assert_eq!(elements.len(), expected_counts[i]);
-                i += 1;
-            }
         }
     }
 }

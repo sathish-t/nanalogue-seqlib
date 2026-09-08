@@ -51,8 +51,6 @@ pub enum Error {
     BamParseCigar { msg: String },
     #[error("unexpected CIGAR operation: {msg}")]
     BamUnexpectedCigarOperation { msg: String },
-    #[error("error parsing SAM record: {rec}")]
-    BamParseSAM { rec: String },
     #[error("invalid path to CRAM-reference {path}")]
     BamInvalidReferencePath { path: PathBuf },
     #[error("invalid compression level {level}")]
@@ -93,16 +91,6 @@ pub enum Error {
     BamAuxTagAlreadyPresent,
     #[error("updating the aux field for this datatype is not supported")]
     BamAuxTagUpdatingNotSupported,
-
-    // Errors for base modification fields
-    #[error("no base modification tag found for record")]
-    BamBaseModificationTagNotFound,
-    #[error("no base modification with the specified code found in record")]
-    BamBaseModificationTypeNotFound,
-    #[error("base modification iteration failed")]
-    BamBaseModificationIterationFailed,
-    #[error("base modification found too many modifications")]
-    BamBaseModificationTooManyMods,
 
     // Errors for BCF
     #[error("error allocating internal data structure for BCF/VCF reader (out of memory?)")]

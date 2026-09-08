@@ -1877,18 +1877,20 @@ CCCCCCCCCCCCCCCCCCC"[..],
 
     #[test]
     fn test_set_qname2() {
-        let mut _header = Header::new();
-        _header.push_record(
-            HeaderRecord::new(b"SQ")
-                .push_tag(b"SN", "1")
-                .push_tag(b"LN", 10000000),
+        let mut rec = Record::new();
+        rec.set(
+            b"blah1",
+            Some(&CigarString(vec![Cigar::Match(1)])),
+            b"A",
+            &[37],
         );
-        let header = HeaderView::from_header(&_header);
-
-        let line =
-            b"blah1	0	1	1	255	1M	*	0	0	A	F	CB:Z:AAAA-1	UR:Z:AAAA	UB:Z:AAAA	GX:Z:G1	xf:i:1	fx:Z:G1\tli:i:0\ttf:Z:cC";
-
-        let mut rec = Record::from_sam(&header, line).unwrap();
+        rec.push_aux(b"CB", Aux::String("AAAA-1")).unwrap();
+        rec.push_aux(b"UR", Aux::String("AAAA")).unwrap();
+        rec.push_aux(b"UB", Aux::String("AAAA")).unwrap();
+        rec.push_aux(b"GX", Aux::String("G1")).unwrap();
+        rec.push_aux(b"xf", Aux::I32(1)).unwrap();
+        rec.push_aux(b"fx", Aux::String("G1\tli:i:0\ttf:Z:cC"))
+            .unwrap();
         assert_eq!(rec.qname(), b"blah1");
         rec.set_qname(b"r0");
         assert_eq!(rec.qname(), b"r0");
@@ -2200,32 +2202,6 @@ CCCCCCCCCCCCCCCCCCC"[..],
     }
 
     #[test]
-    fn parse_from_sam() {
-        use std::fs::File;
-        use std::io::Read;
-
-        let bamfile = "./test/bam2sam_test.bam";
-        let samfile = "./test/bam2sam_expected.sam";
-
-        // Load BAM file:
-        let mut rdr = Reader::from_path(bamfile).unwrap();
-        let bam_recs: Vec<Record> = rdr.records().map(|v| v.unwrap()).collect();
-
-        let mut sam = Vec::new();
-        assert!(File::open(samfile).unwrap().read_to_end(&mut sam).is_ok());
-
-        let sam_recs: Vec<Record> = sam
-            .split(|x| *x == b'\n')
-            .filter(|x| !x.is_empty() && x[0] != b'@')
-            .map(|line| Record::from_sam(rdr.header(), line).unwrap())
-            .collect();
-
-        for (b1, s1) in bam_recs.iter().zip(sam_recs.iter()) {
-            assert!(b1 == s1);
-        }
-    }
-
-    #[test]
     fn test_cigar_modes() {
         // test the cached and uncached ways of getting the cigar string.
 
@@ -2527,12 +2503,8 @@ CCCCCCCCCCCCCCCCCCC"[..],
 
     #[test]
     fn test_aux_arrays() {
-        let bam_header = Header::new();
-        let mut test_record = Record::from_sam(
-            &HeaderView::from_header(&bam_header),
-            "ali1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tFFFF".as_bytes(),
-        )
-        .unwrap();
+        let mut test_record = Record::new();
+        test_record.set(b"ali1", None, b"ACGT", &[37; 4]);
 
         let array_i8: Vec<i8> = vec![i8::MIN, -1, 0, 1, i8::MAX];
         let array_u8: Vec<u8> = vec![u8::MIN, 0, 1, u8::MAX];
@@ -2858,12 +2830,8 @@ CCCCCCCCCCCCCCCCCCC"[..],
 
     #[test]
     fn test_aux_scalars() {
-        let bam_header = Header::new();
-        let mut test_record = Record::from_sam(
-            &HeaderView::from_header(&bam_header),
-            "ali1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tFFFF".as_bytes(),
-        )
-        .unwrap();
+        let mut test_record = Record::new();
+        test_record.set(b"ali1", None, b"ACGT", &[37; 4]);
 
         test_record.push_aux(b"XA", Aux::I8(i8::MIN)).unwrap();
         test_record.push_aux(b"XB", Aux::I8(i8::MAX)).unwrap();
@@ -2931,12 +2899,8 @@ CCCCCCCCCCCCCCCCCCC"[..],
         assert_ne!(&one_aux, &two_aux);
 
         // Raw bytes
-        let bam_header = Header::new();
-        let mut test_record = Record::from_sam(
-            &HeaderView::from_header(&bam_header),
-            "ali1\t4\t*\t0\t0\t*\t*\t0\t0\tACGT\tFFFF".as_bytes(),
-        )
-        .unwrap();
+        let mut test_record = Record::new();
+        test_record.set(b"ali1", None, b"ACGT", &[37; 4]);
 
         test_record.push_aux(b"XA", one_aux).unwrap();
         test_record.push_aux(b"XB", two_aux).unwrap();
