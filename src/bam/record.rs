@@ -3,7 +3,6 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::convert::TryFrom;
 use std::ffi;
 use std::fmt;
 use std::marker::PhantomData;
@@ -22,18 +21,17 @@ use crate::errors::Result;
 use crate::htslib;
 use crate::utils;
 
-use bio_types::alignment::{Alignment, AlignmentMode, AlignmentOperation};
 use bio_types::genome;
-use bio_types::sequence::SequenceRead;
-use bio_types::sequence::SequenceReadPairOrientation;
-use bio_types::strand::ReqStrand;
 
 /// A macro creating methods for flag access.
 macro_rules! flag {
-    ($get:ident, $set:ident, $unset:ident, $bit:expr) => {
+    ($get:ident, $bit:expr) => {
         pub fn $get(&self) -> bool {
             self.inner().core.flag & $bit != 0
         }
+    };
+    ($get:ident, $set:ident, $unset:ident, $bit:expr) => {
+        flag!($get, $bit);
 
         pub fn $set(&mut self) {
             self.inner_mut().core.flag |= $bit;
@@ -46,40 +44,13 @@ macro_rules! flag {
 }
 
 /// A BAM record.
+///
+/// Each record owns the allocation referenced by `inner.data` and frees it when dropped.
 pub struct Record {
     pub inner: htslib::bam1_t,
-    own: bool,
     cigar: Option<CigarStringView>,
     header: Option<Arc<HeaderView>>,
 }
-
-unsafe impl Send for Record {}
-unsafe impl Sync for Record {}
-
-impl Clone for Record {
-    fn clone(&self) -> Self {
-        let mut copy = Record::new();
-        unsafe { htslib::bam_copy1(copy.inner_ptr_mut(), self.inner_ptr()) };
-        copy
-    }
-}
-
-impl PartialEq for Record {
-    fn eq(&self, other: &Record) -> bool {
-        self.tid() == other.tid()
-            && self.pos() == other.pos()
-            && self.bin() == other.bin()
-            && self.mapq() == other.mapq()
-            && self.flags() == other.flags()
-            && self.mtid() == other.mtid()
-            && self.mpos() == other.mpos()
-            && self.insert_size() == other.insert_size()
-            && self.data() == other.data()
-            && self.inner().core.l_extranul == other.inner().core.l_extranul
-    }
-}
-
-impl Eq for Record {}
 
 impl fmt::Debug for Record {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -90,6 +61,23 @@ impl fmt::Debug for Record {
         ))
     }
 }
+
+impl PartialEq for Record {
+    fn eq(&self, other: &Record) -> bool {
+        self.inner().core.tid == other.inner().core.tid
+            && self.inner().core.pos == other.inner().core.pos
+            && self.inner().core.bin == other.inner().core.bin
+            && self.inner().core.qual == other.inner().core.qual
+            && self.inner().core.flag == other.inner().core.flag
+            && self.inner().core.mtid == other.inner().core.mtid
+            && self.inner().core.mpos == other.inner().core.mpos
+            && self.inner().core.isize_ == other.inner().core.isize_
+            && self.data() == other.data()
+            && self.inner().core.l_extranul == other.inner().core.l_extranul
+    }
+}
+
+impl Eq for Record {}
 
 impl Default for Record {
     fn default() -> Self {
@@ -112,7 +100,6 @@ impl Record {
     pub fn new() -> Self {
         let mut record = Record {
             inner: unsafe { MaybeUninit::zeroed().assume_init() },
-            own: true,
             cigar: None,
             header: None,
         };
@@ -127,26 +114,6 @@ impl Record {
         record.set_mpos(-1);
         record.set_mtid(-1);
         record
-    }
-
-    pub fn from_inner(from: *mut htslib::bam1_t) -> Self {
-        Record {
-            inner: {
-                #[allow(clippy::uninit_assumed_init, invalid_value)]
-                let mut inner = unsafe { MaybeUninit::uninit().assume_init() };
-                unsafe {
-                    ::libc::memcpy(
-                        &mut inner as *mut htslib::bam1_t as *mut ::libc::c_void,
-                        from as *const ::libc::c_void,
-                        size_of::<htslib::bam1_t>(),
-                    );
-                }
-                inner
-            },
-            own: false,
-            cigar: None,
-            header: None,
-        }
     }
 
     pub fn set_header(&mut self, header: Arc<HeaderView>) {
@@ -197,14 +164,6 @@ impl Record {
         self.inner_mut().core.pos = pos;
     }
 
-    pub fn bin(&self) -> u16 {
-        self.inner().core.bin
-    }
-
-    pub fn set_bin(&mut self, bin: u16) {
-        self.inner_mut().core.bin = bin;
-    }
-
     /// Get MAPQ.
     pub fn mapq(&self) -> u8 {
         self.inner().core.qual
@@ -213,16 +172,6 @@ impl Record {
     /// Set MAPQ.
     pub fn set_mapq(&mut self, mapq: u8) {
         self.inner_mut().core.qual = mapq;
-    }
-
-    /// Get strand information from record flags.
-    pub fn strand(&self) -> ReqStrand {
-        let reverse = self.flags() & 0x10 != 0;
-        if reverse {
-            ReqStrand::Reverse
-        } else {
-            ReqStrand::Forward
-        }
     }
 
     /// Get raw flags.
@@ -240,34 +189,14 @@ impl Record {
         self.inner_mut().core.flag = 0;
     }
 
-    /// Get target id of mate.
-    pub fn mtid(&self) -> i32 {
-        self.inner().core.mtid
-    }
-
     /// Set target id of mate.
     pub fn set_mtid(&mut self, mtid: i32) {
         self.inner_mut().core.mtid = mtid;
     }
 
-    /// Get mate position.
-    pub fn mpos(&self) -> i64 {
-        self.inner().core.mpos
-    }
-
     /// Set mate position.
     pub fn set_mpos(&mut self, mpos: i64) {
         self.inner_mut().core.mpos = mpos;
-    }
-
-    /// Get insert size.
-    pub fn insert_size(&self) -> i64 {
-        self.inner().core.isize_
-    }
-
-    /// Set insert size.
-    pub fn set_insert_size(&mut self, insert_size: i64) {
-        self.inner_mut().core.isize_ = insert_size;
     }
 
     fn qname_capacity(&self) -> usize {
@@ -282,23 +211,6 @@ impl Record {
     /// Get qname (read name). Complexity: O(1).
     pub fn qname(&self) -> &[u8] {
         &self.data()[..self.qname_len()]
-    }
-
-    /// Set the variable length data buffer
-    pub fn set_data(&mut self, new_data: &[u8]) {
-        self.cigar = None;
-
-        self.inner_mut().l_data = new_data.len() as i32;
-        if (self.inner().m_data as i32) < self.inner().l_data {
-            // Verbosity due to lexical borrowing
-            let l_data = self.inner().l_data;
-            self.realloc_var_data(l_data as usize);
-        }
-
-        // Copy new data into buffer
-        let data =
-            unsafe { slice::from_raw_parts_mut(self.inner.data, self.inner().l_data as usize) };
-        utils::copy_memory(new_data, data);
     }
 
     /// Set variable length data (qname, cigar, seq, qual).
@@ -439,62 +351,6 @@ impl Record {
         self.inner_mut().core.l_extranul = extranul as u8;
     }
 
-    /// Replace current cigar with a new one.
-    pub fn set_cigar(&mut self, new_cigar: Option<&CigarString>) {
-        self.cigar = None;
-
-        let qname_data_len = self.qname_capacity();
-        let old_cigar_data_len = self.cigar_len() * 4;
-
-        // Length of data after cigar
-        let other_data_len = self.inner_mut().l_data - (qname_data_len + old_cigar_data_len) as i32;
-
-        let new_cigar_len = match new_cigar {
-            Some(x) => x.len(),
-            None => 0,
-        };
-        let new_cigar_data_len = new_cigar_len * 4;
-
-        if new_cigar_data_len < old_cigar_data_len {
-            self.inner_mut().l_data -= (old_cigar_data_len - new_cigar_data_len) as i32;
-        } else if new_cigar_data_len > old_cigar_data_len {
-            self.inner_mut().l_data += (new_cigar_data_len - old_cigar_data_len) as i32;
-
-            // Reallocate if necessary
-            if (self.inner().m_data as i32) < self.inner().l_data {
-                // Verbosity due to lexical borrowing
-                let l_data = self.inner().l_data;
-                self.realloc_var_data(l_data as usize);
-            }
-        }
-
-        if new_cigar_data_len != old_cigar_data_len {
-            // Move other data to new location
-            unsafe {
-                ::libc::memmove(
-                    self.inner.data.add(qname_data_len + new_cigar_data_len) as *mut ::libc::c_void,
-                    self.inner.data.add(qname_data_len + old_cigar_data_len) as *mut ::libc::c_void,
-                    other_data_len as usize,
-                );
-            }
-        }
-
-        // Copy cigar data
-        if let Some(cigar_string) = new_cigar {
-            let cigar_data = unsafe {
-                #[allow(clippy::cast_ptr_alignment)]
-                slice::from_raw_parts_mut(
-                    self.inner.data.add(qname_data_len) as *mut u32,
-                    cigar_string.len(),
-                )
-            };
-            for (i, c) in cigar_string.iter().enumerate() {
-                cigar_data[i] = c.encode();
-            }
-        }
-        self.inner_mut().core.n_cigar = new_cigar_len as u32;
-    }
-
     fn realloc_var_data(&mut self, new_len: usize) {
         // pad request
         let new_len = new_len as u32;
@@ -515,9 +371,6 @@ impl Record {
         // a successful allocation.
         self.inner_mut().m_data = new_request;
         self.inner_mut().data = ptr;
-
-        // we now own inner.data
-        self.own = true;
     }
 
     pub fn cigar_len(&self) -> usize {
@@ -797,26 +650,6 @@ impl Record {
         Ok((data, TAG_LEN as usize + TYPE_ID_LEN as usize + type_size))
     }
 
-    /// Returns an iterator over the auxiliary fields of the record.
-    ///
-    /// When an error occurs, the `Err` variant will be returned
-    /// and the iterator will not be able to advance anymore.
-    pub fn aux_iter(&'_ self) -> AuxIter<'_> {
-        AuxIter {
-            // In order to get to the aux data section of a `bam::Record`
-            // we need to skip fields in front of it
-            aux: &self.data()[
-                // NUL terminated read name:
-                self.qname_capacity()
-                // CIGAR (uint32_t):
-                + self.cigar_len() * std::mem::size_of::<u32>()
-                // Read sequence (4-bit encoded):
-                + self.seq_len().div_ceil(2)
-                // Base qualities (char):
-                + self.seq_len()..],
-        }
-    }
-
     /// Add auxiliary data.
     pub fn push_aux(&mut self, tag: &[u8], value: Aux<'_>) -> Result<()> {
         // Don't allow pushing aux data when the given tag is already present in the record.
@@ -832,7 +665,7 @@ impl Record {
     ///
     /// The caller should ensure that the same tag is not pushed more than once.
     /// This is provided as a performance optimization.
-    pub fn push_aux_unchecked(&mut self, tag: &[u8], value: Aux<'_>) -> Result<()> {
+    fn push_aux_unchecked(&mut self, tag: &[u8], value: Aux<'_>) -> Result<()> {
         let ctag = tag.as_ptr() as *mut c_char;
         let ret = unsafe {
             match value {
@@ -1043,297 +876,23 @@ impl Record {
         }
     }
 
-    /// Update or add auxiliary data.
-    pub fn update_aux(&mut self, tag: &[u8], value: Aux<'_>) -> Result<()> {
-        // Update existing aux data for the given tag if already present in the record
-        // without changing the ordering of tags in the record or append aux data at
-        // the end of the existing aux records if it is a new tag.
-
-        let ctag = tag.as_ptr() as *mut c_char;
-        let ret = unsafe {
-            match value {
-                Aux::Char(_v) => return Err(Error::BamAuxTagUpdatingNotSupported),
-                Aux::I8(v) => htslib::bam_aux_update_int(self.inner_ptr_mut(), ctag, v as i64),
-                Aux::U8(v) => htslib::bam_aux_update_int(self.inner_ptr_mut(), ctag, v as i64),
-                Aux::I16(v) => htslib::bam_aux_update_int(self.inner_ptr_mut(), ctag, v as i64),
-                Aux::U16(v) => htslib::bam_aux_update_int(self.inner_ptr_mut(), ctag, v as i64),
-                Aux::I32(v) => htslib::bam_aux_update_int(self.inner_ptr_mut(), ctag, v as i64),
-                Aux::U32(v) => htslib::bam_aux_update_int(self.inner_ptr_mut(), ctag, v as i64),
-                Aux::Float(v) => htslib::bam_aux_update_float(self.inner_ptr_mut(), ctag, v),
-                // Not part of specs but implemented in `htslib`:
-                Aux::Double(v) => {
-                    htslib::bam_aux_update_float(self.inner_ptr_mut(), ctag, v as f32)
-                }
-                Aux::String(v) => {
-                    let c_str = ffi::CString::new(v).map_err(|_| Error::BamAuxStringError)?;
-                    htslib::bam_aux_update_str(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        (v.len() + 1) as i32,
-                        c_str.as_ptr() as *const c_char,
-                    )
-                }
-                Aux::HexByteArray(_v) => return Err(Error::BamAuxTagUpdatingNotSupported),
-                // Not sure it's safe to cast an immutable slice to a mutable pointer in the following branches
-                Aux::ArrayI8(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'c',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'c',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayU8(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'C',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'C',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayI16(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b's',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b's',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayU16(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'S',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'S',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayI32(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'i',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'i',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayU32(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'I',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'I',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayFloat(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'f',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'f',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-            }
-        };
-
-        if ret < 0 {
-            Err(Error::BamAux)
-        } else {
-            Ok(())
-        }
-    }
-
-    // Delete auxiliary tag.
-    pub fn remove_aux(&mut self, tag: &[u8]) -> Result<()> {
-        if tag.len() < 2 {
-            return Err(Error::BamAuxStringError);
-        }
-        let aux = unsafe {
-            htslib::bam_aux_get(
-                &self.inner as *const htslib::bam1_t,
-                tag.as_ptr() as *const c_char,
-            )
-        };
-        unsafe {
-            if aux.is_null() {
-                Err(Error::BamAuxTagNotFound)
-            } else {
-                htslib::bam_aux_del(self.inner_ptr_mut(), aux);
-                Ok(())
-            }
-        }
-    }
-
-    /// Infer read pair orientation from record. Returns `SequenceReadPairOrientation::None` if record
-    /// is not paired, mates are not mapping to the same contig, or mates start at the
-    /// same position.
-    pub fn read_pair_orientation(&self) -> SequenceReadPairOrientation {
-        if self.is_paired()
-            && !self.is_unmapped()
-            && !self.is_mate_unmapped()
-            && self.tid() == self.mtid()
-        {
-            if self.pos() == self.mpos() {
-                // both reads start at the same position, we cannot decide on the orientation.
-                return SequenceReadPairOrientation::None;
-            }
-
-            let (pos_1, pos_2, fwd_1, fwd_2) = if self.is_first_in_template() {
-                (
-                    self.pos(),
-                    self.mpos(),
-                    !self.is_reverse(),
-                    !self.is_mate_reverse(),
-                )
-            } else {
-                (
-                    self.mpos(),
-                    self.pos(),
-                    !self.is_mate_reverse(),
-                    !self.is_reverse(),
-                )
-            };
-
-            if pos_1 < pos_2 {
-                match (fwd_1, fwd_2) {
-                    (true, true) => SequenceReadPairOrientation::F1F2,
-                    (true, false) => SequenceReadPairOrientation::F1R2,
-                    (false, true) => SequenceReadPairOrientation::R1F2,
-                    (false, false) => SequenceReadPairOrientation::R1R2,
-                }
-            } else {
-                match (fwd_2, fwd_1) {
-                    (true, true) => SequenceReadPairOrientation::F2F1,
-                    (true, false) => SequenceReadPairOrientation::F2R1,
-                    (false, true) => SequenceReadPairOrientation::R2F1,
-                    (false, false) => SequenceReadPairOrientation::R2R1,
-                }
-            }
-        } else {
-            SequenceReadPairOrientation::None
-        }
-    }
-
-    flag!(is_paired, set_paired, unset_paired, 1u16);
-    flag!(is_proper_pair, set_proper_pair, unset_proper_pair, 2u16);
+    flag!(is_paired, 1u16);
+    flag!(is_proper_pair, 2u16);
     flag!(is_unmapped, set_unmapped, unset_unmapped, 4u16);
-    flag!(
-        is_mate_unmapped,
-        set_mate_unmapped,
-        unset_mate_unmapped,
-        8u16
-    );
+    flag!(is_mate_unmapped, 8u16);
     flag!(is_reverse, set_reverse, unset_reverse, 16u16);
-    flag!(is_mate_reverse, set_mate_reverse, unset_mate_reverse, 32u16);
-    flag!(
-        is_first_in_template,
-        set_first_in_template,
-        unset_first_in_template,
-        64u16
-    );
-    flag!(
-        is_last_in_template,
-        set_last_in_template,
-        unset_last_in_template,
-        128u16
-    );
-    flag!(is_secondary, set_secondary, unset_secondary, 256u16);
-    flag!(
-        is_quality_check_failed,
-        set_quality_check_failed,
-        unset_quality_check_failed,
-        512u16
-    );
-    flag!(is_duplicate, set_duplicate, unset_duplicate, 1024u16);
-    flag!(
-        is_supplementary,
-        set_supplementary,
-        unset_supplementary,
-        2048u16
-    );
+    flag!(is_mate_reverse, 32u16);
+    flag!(is_first_in_template, 64u16);
+    flag!(is_last_in_template, 128u16);
+    flag!(is_secondary, 256u16);
+    flag!(is_quality_check_failed, 512u16);
+    flag!(is_duplicate, 1024u16);
+    flag!(is_supplementary, 2048u16);
 }
 
 impl Drop for Record {
     fn drop(&mut self) {
-        if self.own {
-            unsafe { ::libc::free(self.inner.data as *mut ::libc::c_void) }
-        }
-    }
-}
-
-impl SequenceRead for Record {
-    fn name(&self) -> &[u8] {
-        self.qname()
-    }
-
-    fn base(&self, i: usize) -> u8 {
-        *decode_base_unchecked(encoded_base(self.seq_data(), i))
-    }
-
-    fn base_qual(&self, i: usize) -> u8 {
-        self.qual()[i]
-    }
-
-    fn len(&self) -> usize {
-        self.seq_len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.len() == 0
+        unsafe { ::libc::free(self.inner.data as *mut ::libc::c_void) }
     }
 }
 
@@ -1441,9 +1000,6 @@ pub enum Aux<'a> {
     ArrayU32(AuxArray<'a, u32>),
     ArrayFloat(AuxArray<'a, f32>),
 }
-
-unsafe impl Send for Aux<'_> {}
-unsafe impl Sync for Aux<'_> {}
 
 /// Types that can be used in aux arrays.
 pub trait AuxArrayElement: Copy {
@@ -1660,6 +1216,7 @@ where
     T: AuxArrayElement,
 {
     type Item = T;
+
     fn next(&mut self) -> Option<Self::Item> {
         let value = self.array.get(self.index);
         self.index += 1;
@@ -1669,50 +1226,6 @@ where
     fn size_hint(&self) -> (usize, Option<usize>) {
         let array_length = self.array.len() - self.index;
         (array_length, Some(array_length))
-    }
-}
-
-/// Auxiliary data iterator
-///
-/// This struct is created by the [`Record::aux_iter`] method.
-///
-/// This iterator returns `Result`s that wrap tuples containing
-/// a slice which represents the two-byte tag (`&[u8; 2]`) as
-/// well as an `Aux` enum that wraps the associated value.
-///
-/// When an error occurs, the `Err` variant will be returned
-/// and the iterator will not be able to advance anymore.
-pub struct AuxIter<'a> {
-    aux: &'a [u8],
-}
-
-impl<'a> Iterator for AuxIter<'a> {
-    type Item = Result<(&'a [u8], Aux<'a>)>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // We're finished
-        if self.aux.is_empty() {
-            return None;
-        }
-        // Incomplete aux data
-        if (1..=3).contains(&self.aux.len()) {
-            // In the case of an error, we can not safely advance in the aux data, so we terminate the Iteration
-            self.aux = &[];
-            return Some(Err(Error::BamAuxParsingError));
-        }
-        let tag = &self.aux[..2];
-        Some(unsafe {
-            let data_ptr = self.aux[2..].as_ptr();
-            Record::read_aux_field(data_ptr)
-                .map(|(aux, offset)| {
-                    self.aux = &self.aux[offset..];
-                    (tag, aux)
-                })
-                .inspect_err(|_e| {
-                    // In the case of an error, we can not safely advance in the aux data, so we terminate the Iteration
-                    self.aux = &[];
-                })
-        })
     }
 }
 
@@ -1737,17 +1250,11 @@ fn encoded_base(encoded_seq: &[u8], i: usize) -> u8 {
 }
 
 #[inline]
-unsafe fn encoded_base_unchecked(encoded_seq: &[u8], i: usize) -> u8 {
-    (encoded_seq.get_unchecked(i / 2) >> ((!i & 1) << 2)) & 0b1111
-}
-
-#[inline]
 fn decode_base_unchecked(base: u8) -> &'static u8 {
     unsafe { DECODE_BASE.get_unchecked(base as usize) }
 }
 
 /// The sequence of a record.
-#[derive(Debug, Copy, Clone)]
 pub struct Seq<'a> {
     pub encoded: &'a [u8],
     len: usize,
@@ -1758,28 +1265,6 @@ impl Seq<'_> {
     #[inline]
     pub fn encoded_base(&self, i: usize) -> u8 {
         encoded_base(self.encoded, i)
-    }
-
-    /// Return encoded base. Complexity: O(1).
-    ///
-    /// # Safety
-    ///
-    /// TODO
-    #[inline]
-    pub unsafe fn encoded_base_unchecked(&self, i: usize) -> u8 {
-        encoded_base_unchecked(self.encoded, i)
-    }
-
-    /// Obtain decoded base without performing bounds checking.
-    /// Use index based access seq()[i], for checked, safe access.
-    /// Complexity: O(1).
-    ///
-    /// # Safety
-    ///
-    /// TODO
-    #[inline]
-    pub unsafe fn decoded_base_unchecked(&self, i: usize) -> u8 {
-        *decode_base_unchecked(self.encoded_base_unchecked(i))
     }
 
     /// Return decoded sequence. Complexity: O(m) with m being the read length.
@@ -1805,9 +1290,6 @@ impl ops::Index<usize> for Seq<'_> {
         decode_base_unchecked(self.encoded_base(index))
     }
 }
-
-unsafe impl Send for Seq<'_> {}
-unsafe impl Sync for Seq<'_> {}
 
 #[derive(PartialEq, PartialOrd, Eq, Debug, Clone, Copy, Hash)]
 pub enum Cigar {
@@ -1840,15 +1322,15 @@ impl Cigar {
     /// Return the length of the CIGAR.
     pub fn len(self) -> u32 {
         match self {
-            Cigar::Match(len) => len,
-            Cigar::Ins(len) => len,
-            Cigar::Del(len) => len,
-            Cigar::RefSkip(len) => len,
-            Cigar::SoftClip(len) => len,
-            Cigar::HardClip(len) => len,
-            Cigar::Pad(len) => len,
-            Cigar::Equal(len) => len,
-            Cigar::Diff(len) => len,
+            Cigar::Match(len)
+            | Cigar::Ins(len)
+            | Cigar::Del(len)
+            | Cigar::RefSkip(len)
+            | Cigar::SoftClip(len)
+            | Cigar::HardClip(len)
+            | Cigar::Pad(len)
+            | Cigar::Equal(len)
+            | Cigar::Diff(len) => len,
         }
     }
 
@@ -1878,9 +1360,6 @@ impl fmt::Display for Cigar {
     }
 }
 
-unsafe impl Send for Cigar {}
-unsafe impl Sync for Cigar {}
-
 custom_derive! {
     /// A CIGAR string. This type wraps around a `Vec<Cigar>`.
     ///
@@ -1900,17 +1379,18 @@ custom_derive! {
     ///    println!("{}", op);
     /// }
     /// ```
-    #[derive(NewtypeDeref,
-            NewtypeDerefMut,
-             NewtypeIndex(usize),
-             NewtypeIndexMut(usize),
-             NewtypeFrom,
-             PartialEq,
-             PartialOrd,
-             Eq,
-             NewtypeDebug,
-             Clone,
-             Hash
+    #[derive(
+        NewtypeDeref,
+        NewtypeDerefMut,
+        NewtypeIndex(usize),
+        NewtypeIndexMut(usize),
+        NewtypeFrom,
+        PartialEq,
+        PartialOrd,
+        Eq,
+        NewtypeDebug,
+        Clone,
+        Hash
     )]
     pub struct CigarString(pub Vec<Cigar>);
 }
@@ -1919,187 +1399,6 @@ impl CigarString {
     /// Create a `CigarStringView` from this CigarString at position `pos`
     pub fn into_view(self, pos: i64) -> CigarStringView {
         CigarStringView::new(self, pos)
-    }
-
-    /// Calculate the bam cigar from the alignment struct. x is the target string
-    /// and y is the reference. `hard_clip` controls how unaligned read bases are encoded in the
-    /// cigar string. Set to true to use the hard clip (`H`) code, or false to use soft clip
-    /// (`S`) code. See the [SAM spec](https://samtools.github.io/hts-specs/SAMv1.pdf) for more details.
-    pub fn from_alignment(alignment: &Alignment, hard_clip: bool) -> Self {
-        match alignment.mode {
-            AlignmentMode::Global => {
-                panic!(" Bam cigar fn not supported for Global Alignment mode")
-            }
-            AlignmentMode::Local => panic!(" Bam cigar fn not supported for Local Alignment mode"),
-            _ => {}
-        }
-
-        let mut cigar = Vec::new();
-        if alignment.operations.is_empty() {
-            return CigarString(cigar);
-        }
-
-        let add_op = |op: AlignmentOperation, length: u32, cigar: &mut Vec<Cigar>| match op {
-            AlignmentOperation::Del => cigar.push(Cigar::Del(length)),
-            AlignmentOperation::Ins => cigar.push(Cigar::Ins(length)),
-            AlignmentOperation::Subst => cigar.push(Cigar::Diff(length)),
-            AlignmentOperation::Match => cigar.push(Cigar::Equal(length)),
-            _ => {}
-        };
-
-        if alignment.xstart > 0 {
-            cigar.push(if hard_clip {
-                Cigar::HardClip(alignment.xstart as u32)
-            } else {
-                Cigar::SoftClip(alignment.xstart as u32)
-            });
-        }
-
-        let mut last = alignment.operations[0];
-        let mut k = 1u32;
-        for &op in alignment.operations[1..].iter() {
-            if op == last {
-                k += 1;
-            } else {
-                add_op(last, k, &mut cigar);
-                k = 1;
-            }
-            last = op;
-        }
-        add_op(last, k, &mut cigar);
-        if alignment.xlen > alignment.xend {
-            cigar.push(if hard_clip {
-                Cigar::HardClip((alignment.xlen - alignment.xend) as u32)
-            } else {
-                Cigar::SoftClip((alignment.xlen - alignment.xend) as u32)
-            });
-        }
-
-        CigarString(cigar)
-    }
-}
-
-impl TryFrom<&[u8]> for CigarString {
-    type Error = Error;
-
-    /// Create a CigarString from given &[u8].
-    /// # Example
-    /// ```
-    /// use rust_htslib::bam::record::*;
-    /// use rust_htslib::bam::record::CigarString;
-    /// use rust_htslib::bam::record::Cigar::*;
-    /// use std::convert::TryFrom;
-    ///
-    /// let cigar_str = "2H10M5X3=2H".as_bytes();
-    /// let cigar = CigarString::try_from(cigar_str)
-    ///     .expect("Unable to parse cigar string.");
-    /// let expected_cigar = CigarString(vec![
-    ///     HardClip(2),
-    ///     Match(10),
-    ///     Diff(5),
-    ///     Equal(3),
-    ///     HardClip(2),
-    /// ]);
-    /// assert_eq!(cigar, expected_cigar);
-    /// ```
-    fn try_from(bytes: &[u8]) -> Result<Self> {
-        let mut inner = Vec::new();
-        let mut i = 0;
-        let text_len = bytes.len();
-        while i < text_len {
-            let mut j = i;
-            while j < text_len && bytes[j].is_ascii_digit() {
-                j += 1;
-            }
-            // check that length is provided
-            if i == j {
-                return Err(Error::BamParseCigar {
-                    msg: "Expected length before cigar operation [0-9]+[MIDNSHP=X]".to_owned(),
-                });
-            }
-            // get the length of the operation
-            let s = str::from_utf8(&bytes[i..j]).map_err(|_| Error::BamParseCigar {
-                msg: format!("Invalid utf-8 bytes '{:?}'.", &bytes[i..j]),
-            })?;
-            let n = s.parse().map_err(|_| Error::BamParseCigar {
-                msg: format!("Unable to parse &str '{:?}' to u32.", s),
-            })?;
-            // get the operation
-            let op = &bytes[j];
-            inner.push(match op {
-                b'M' => Cigar::Match(n),
-                b'I' => Cigar::Ins(n),
-                b'D' => Cigar::Del(n),
-                b'N' => Cigar::RefSkip(n),
-                b'H' => {
-                    if i == 0 || j + 1 == text_len {
-                        Cigar::HardClip(n)
-                    } else {
-                        return Err(Error::BamParseCigar {
-                            msg: "Hard clipping ('H') is only valid at the start or end of a cigar."
-                                .to_owned(),
-                        });
-                    }
-                }
-                b'S' => {
-                    if i == 0
-                        || j + 1 == text_len
-                        || bytes[i-1] == b'H'
-                        || bytes[j+1..].iter().all(|c| c.is_ascii_digit() || *c == b'H') {
-                        Cigar::SoftClip(n)
-                    } else {
-                        return Err(Error::BamParseCigar {
-                        msg: "Soft clips ('S') can only have hard clips ('H') between them and the end of the CIGAR string."
-                            .to_owned(),
-                        });
-                    }
-                },
-                b'P' => Cigar::Pad(n),
-                b'=' => Cigar::Equal(n),
-                b'X' => Cigar::Diff(n),
-                op => {
-                    return Err(Error::BamParseCigar {
-                        msg: format!("Expected cigar operation [MIDNSHP=X] but got [{}]", op),
-                    })
-                }
-            });
-            i = j + 1;
-        }
-        Ok(CigarString(inner))
-    }
-}
-
-impl TryFrom<&str> for CigarString {
-    type Error = Error;
-
-    /// Create a CigarString from given &str.
-    /// # Example
-    /// ```
-    /// use rust_htslib::bam::record::*;
-    /// use rust_htslib::bam::record::CigarString;
-    /// use rust_htslib::bam::record::Cigar::*;
-    /// use std::convert::TryFrom;
-    ///
-    /// let cigar_str = "2H10M5X3=2H";
-    /// let cigar = CigarString::try_from(cigar_str)
-    ///     .expect("Unable to parse cigar string.");
-    /// let expected_cigar = CigarString(vec![
-    ///     HardClip(2),
-    ///     Match(10),
-    ///     Diff(5),
-    ///     Equal(3),
-    ///     HardClip(2),
-    /// ]);
-    /// assert_eq!(cigar, expected_cigar);
-    /// ```
-    fn try_from(text: &str) -> Result<Self> {
-        let bytes = text.as_bytes();
-        if text.chars().count() != bytes.len() {
-            return Err(Error::BamParseCigar {
-                msg: "CIGAR string contained non-ASCII characters, which are not valid. Valid are [0-9MIDNSHP=X].".to_owned(),
-            });
-        }
-        CigarString::try_from(bytes)
     }
 }
 
@@ -2124,16 +1423,6 @@ impl fmt::Display for CigarString {
             fmt.write_fmt(format_args!("{}{}", op.len(), op.char()))?;
         }
         Ok(())
-    }
-}
-
-// Get number of leading/trailing softclips if a CigarString taking hardclips into account
-fn calc_softclips<'a>(mut cigar: impl DoubleEndedIterator<Item = &'a Cigar>) -> i64 {
-    match (cigar.next(), cigar.next()) {
-        (Some(Cigar::HardClip(_)), Some(Cigar::SoftClip(s))) | (Some(Cigar::SoftClip(s)), _) => {
-            *s as i64
-        }
-        _ => 0,
     }
 }
 
@@ -2166,169 +1455,6 @@ impl CigarStringView {
         pos
     }
 
-    /// Get the start position of the alignment (0-based).
-    pub fn pos(&self) -> i64 {
-        self.pos
-    }
-
-    /// Get number of bases softclipped at the beginning of the alignment.
-    pub fn leading_softclips(&self) -> i64 {
-        calc_softclips(self.iter())
-    }
-
-    /// Get number of bases softclipped at the end of the alignment.
-    pub fn trailing_softclips(&self) -> i64 {
-        calc_softclips(self.iter().rev())
-    }
-
-    /// Get number of bases hardclipped at the beginning of the alignment.
-    pub fn leading_hardclips(&self) -> i64 {
-        self.first().map_or(0, |cigar| {
-            if let Cigar::HardClip(s) = cigar {
-                *s as i64
-            } else {
-                0
-            }
-        })
-    }
-
-    /// Get number of bases hardclipped at the end of the alignment.
-    pub fn trailing_hardclips(&self) -> i64 {
-        self.last().map_or(0, |cigar| {
-            if let Cigar::HardClip(s) = cigar {
-                *s as i64
-            } else {
-                0
-            }
-        })
-    }
-
-    /// For a given position in the reference, get corresponding position within read.
-    /// If reference position is outside of the read alignment, return None.
-    ///
-    /// # Arguments
-    ///
-    /// * `ref_pos` - the reference position
-    /// * `include_softclips` - if true, softclips will be considered as matches or mismatches
-    /// * `include_dels` - if true, positions within deletions will be considered (first reference matching read position after deletion will be returned)
-    ///
-    pub fn read_pos(
-        &self,
-        ref_pos: u32,
-        include_softclips: bool,
-        include_dels: bool,
-    ) -> Result<Option<u32>> {
-        let mut rpos = self.pos as u32; // reference position
-        let mut qpos = 0u32; // position within read
-        let mut j = 0; // index into cigar operation vector
-
-        // find first cigar operation referring to qpos = 0 (and thus bases in record.seq()),
-        // because all augmentations of qpos and rpos before that are invalid
-        for (i, c) in self.iter().enumerate() {
-            match c {
-                Cigar::Match(_) |
-                Cigar::Diff(_)  |
-                Cigar::Equal(_) |
-                // this is unexpected, but bwa + GATK indel realignment can produce insertions
-                // before matching positions
-                Cigar::Ins(_) => {
-                    j = i;
-                    break;
-                },
-                Cigar::SoftClip(l) => {
-                    j = i;
-                    if include_softclips {
-                        // Alignment starts with softclip and we want to include it in the
-                        // projection of the reference position. However, the POS field does not
-                        // include the softclip. Hence we have to subtract its length.
-                        rpos = rpos.saturating_sub(*l);
-                    }
-                    break;
-                },
-                Cigar::Del(l) => {
-                    // METHOD: leading deletions can happen in case of trimmed reads where
-                    // a primer has been removed AFTER read mapping.
-                    // Example: 24M8I8D18M9S before trimming, 32H8D18M9S after trimming
-                    // with fgbio. While leading deletions should be impossible with
-                    // normal read mapping, they make perfect sense with primer trimming
-                    // because the mapper still had the evidence to decide in favor of
-                    // the deletion via the primer sequence.
-                    rpos += l;
-                },
-                Cigar::RefSkip(_) => {
-                    return Err(Error::BamUnexpectedCigarOperation {
-                        msg: "'reference skip' (N) found before any operation describing read sequence".to_owned()
-                    });
-                },
-                Cigar::HardClip(_) if i > 0 && i < self.len()-1 => {
-                    return Err(Error::BamUnexpectedCigarOperation{
-                        msg: "'hard clip' (H) found in between operations, contradicting SAMv1 spec that hard clips can only be at the ends of reads".to_owned()
-                    });
-                },
-                // if we have reached the end of the CigarString with only pads and hard clips, we have no read position matching the variant
-                Cigar::Pad(_) | Cigar::HardClip(_) if i == self.len()-1 => return Ok(None),
-                // skip leading HardClips and Pads, as they consume neither read sequence nor reference sequence
-                Cigar::Pad(_) | Cigar::HardClip(_) => ()
-            }
-        }
-
-        let contains_ref_pos = |cigar_op_start: u32, cigar_op_length: u32| {
-            cigar_op_start <= ref_pos && cigar_op_start + cigar_op_length > ref_pos
-        };
-
-        while rpos <= ref_pos && j < self.len() {
-            match self[j] {
-                // potential SNV evidence
-                Cigar::Match(l) | Cigar::Diff(l) | Cigar::Equal(l) if contains_ref_pos(rpos, l) => {
-                    // difference between desired position and first position of current cigar
-                    // operation
-                    qpos += ref_pos - rpos;
-                    return Ok(Some(qpos));
-                }
-                Cigar::SoftClip(l) if include_softclips && contains_ref_pos(rpos, l) => {
-                    qpos += ref_pos - rpos;
-                    return Ok(Some(qpos));
-                }
-                Cigar::Del(l) if include_dels && contains_ref_pos(rpos, l) => {
-                    // qpos shall resemble the start of the deletion
-                    return Ok(Some(qpos));
-                }
-                // for others, just increase pos and qpos as needed
-                Cigar::Match(l) | Cigar::Diff(l) | Cigar::Equal(l) => {
-                    rpos += l;
-                    qpos += l;
-                    j += 1;
-                }
-                Cigar::SoftClip(l) => {
-                    qpos += l;
-                    j += 1;
-                    if include_softclips {
-                        rpos += l;
-                    }
-                }
-                Cigar::Ins(l) => {
-                    qpos += l;
-                    j += 1;
-                }
-                Cigar::RefSkip(l) | Cigar::Del(l) => {
-                    rpos += l;
-                    j += 1;
-                }
-                Cigar::Pad(_) => {
-                    j += 1;
-                }
-                Cigar::HardClip(_) if j < self.len() - 1 => {
-                    return Err(Error::BamUnexpectedCigarOperation{
-                        msg: "'hard clip' (H) found in between operations, contradicting SAMv1 spec that hard clips can only be at the ends of reads".to_owned()
-                    });
-                }
-                Cigar::HardClip(_) => return Ok(None),
-            }
-        }
-
-        Ok(None)
-    }
-
     /// transfer ownership of the Cigar out of the CigarView
     pub fn take(self) -> CigarString {
         self.inner
@@ -2340,20 +1466,6 @@ impl ops::Deref for CigarStringView {
 
     fn deref(&self) -> &CigarString {
         &self.inner
-    }
-}
-
-impl ops::Index<usize> for CigarStringView {
-    type Output = Cigar;
-
-    fn index(&self, index: usize) -> &Cigar {
-        self.inner.index(index)
-    }
-}
-
-impl ops::IndexMut<usize> for CigarStringView {
-    fn index_mut(&mut self, index: usize) -> &mut Cigar {
-        self.inner.index_mut(index)
     }
 }
 
