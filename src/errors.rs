@@ -73,6 +73,10 @@ pub enum Error {
     BamBuildIndex,
     #[error("file is not sorted by position")]
     BamUnsorted,
+    #[error("failed to allocate SAM header text")]
+    BamHeaderAllocation,
+    #[error("failed to parse SAM header")]
+    BamHeaderParse,
 
     // Errors for BAM auxiliary fields
     #[error("failed to add aux field (out of memory?)")]

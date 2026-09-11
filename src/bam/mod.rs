@@ -1052,41 +1052,16 @@ impl Writer {
     /// * `mode` - write mode, refer to htslib::hts_open()
     /// * `header` - header definition to use
     fn new(path: &[u8], mode: &[u8], header: &header::Header) -> Result<Self> {
+        let header = Arc::new(HeaderView::try_from_header(header)?);
         let f = hts_open(path, mode)?;
 
-        // sam_hdr_parse does not populate the text and l_text fields of the header_record.
-        // This causes non-SQ headers to be dropped in the output BAM file.
-        // To avoid this, we copy the All header to a new C-string that is allocated with malloc,
-        // and set this into header_record manually.
-        let header_record = unsafe {
-            let mut header_string = header.to_bytes();
-            if !header_string.is_empty() && header_string[header_string.len() - 1] != b'\n' {
-                header_string.push(b'\n');
-            }
-            let l_text = header_string.len();
-            let text = ::libc::malloc(l_text + 1);
-            libc::memset(text, 0, l_text + 1);
-            libc::memcpy(
-                text,
-                header_string.as_ptr() as *const ::libc::c_void,
-                header_string.len(),
-            );
-
-            //println!("{}", str::from_utf8(&header_string).unwrap());
-            let rec = htslib::sam_hdr_parse(l_text + 1, text as *const c_char);
-
-            (*rec).text = text as *mut c_char;
-            (*rec).l_text = l_text;
-            rec
-        };
-
         unsafe {
-            htslib::sam_hdr_write(f, header_record);
+            htslib::sam_hdr_write(f, header.inner_ptr());
         }
 
         Ok(Writer {
             f,
-            header: Arc::new(HeaderView::new(header_record)),
+            header,
             tpool: None,
         })
     }
@@ -1324,32 +1299,48 @@ unsafe impl Sync for HeaderView {}
 impl HeaderView {
     /// Create a new HeaderView from a pre-populated Header object
     pub fn from_header(header: &Header) -> Self {
+        Self::try_from_header(header).expect("failed to parse SAM header")
+    }
+
+    /// Try to create a new HeaderView from a pre-populated Header object.
+    pub fn try_from_header(header: &Header) -> Result<Self> {
         let mut header_string = header.to_bytes();
         if !header_string.is_empty() && header_string[header_string.len() - 1] != b'\n' {
             header_string.push(b'\n');
         }
-        Self::from_bytes(&header_string)
+        Self::try_from_bytes(&header_string)
     }
 
     /// Create a new HeaderView from bytes
     pub fn from_bytes(header_string: &[u8]) -> Self {
-        let header_record = unsafe {
-            let l_text = header_string.len();
-            let text = ::libc::malloc(l_text + 1);
-            ::libc::memset(text, 0, l_text + 1);
-            ::libc::memcpy(
-                text,
-                header_string.as_ptr() as *const ::libc::c_void,
-                header_string.len(),
-            );
+        Self::try_from_bytes(header_string).expect("failed to parse SAM header")
+    }
 
-            let rec = htslib::sam_hdr_parse(l_text + 1, text as *const c_char);
-            (*rec).text = text as *mut c_char;
-            (*rec).l_text = l_text;
-            rec
-        };
+    /// Try to create a new HeaderView from bytes.
+    pub fn try_from_bytes(header_string: &[u8]) -> Result<Self> {
+        let l_text = header_string.len();
+        let text_len = l_text.checked_add(1).ok_or(Error::BamHeaderAllocation)?;
+        let text = unsafe { libc::malloc(text_len) as *mut c_char };
+        if text.is_null() {
+            return Err(Error::BamHeaderAllocation);
+        }
 
-        HeaderView::new(header_record)
+        unsafe {
+            std::ptr::copy_nonoverlapping(header_string.as_ptr(), text.cast(), l_text);
+            *text.add(l_text) = 0;
+
+            let header_record = htslib::sam_hdr_parse(text_len, text);
+            if header_record.is_null() {
+                libc::free(text.cast());
+                return Err(Error::BamHeaderParse);
+            }
+
+            // sam_hdr_parse does not retain the input text. Keep it so non-SQ
+            // header records are preserved when this header is written.
+            (*header_record).text = text;
+            (*header_record).l_text = l_text;
+            Ok(HeaderView::new(header_record))
+        }
     }
 
     /// Create a new HeaderView from the underlying Htslib type, and own it.
@@ -2652,6 +2643,31 @@ CCCCCCCCCCCCCCCCCCC"[..],
         let header = Header::new();
         let header_view = HeaderView::from_header(&header);
         assert_eq!(b"", header_view.tid2name(0));
+    }
+
+    #[test]
+    fn test_invalid_header_does_not_abort() {
+        assert!(matches!(
+            HeaderView::try_from_bytes(b"@SQ\tLN:100\n"),
+            Err(Error::BamHeaderParse)
+        ));
+    }
+
+    #[test]
+    fn test_valid_header_is_constructed() {
+        let header_view = HeaderView::from_bytes(b"@SQ\tSN:chr1\tLN:100\n");
+        assert_eq!(header_view.target_names(), vec![b"chr1" as &[u8]]);
+    }
+
+    #[test]
+    fn test_writer_rejects_invalid_header() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut header = Header::new();
+        header.push_record(HeaderRecord::new(b"SQ").push_tag(b"LN", 100));
+        assert!(matches!(
+            Writer::from_path(tmp.path().join("invalid.bam"), &header, Format::Bam),
+            Err(Error::BamHeaderParse)
+        ));
     }
 
     // #[test]
