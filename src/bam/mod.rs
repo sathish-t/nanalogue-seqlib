@@ -186,19 +186,16 @@ pub trait Read: Sized {
     /// Return the header.
     fn header(&self) -> &HeaderView;
 
-    /// Seek to the given virtual offset in the file
+    /// Seek to the given BAM virtual offset in the file.
+    ///
+    /// Virtual offsets are only supported for BAM files.
     fn seek(&mut self, offset: i64) -> Result<()> {
         let htsfile = unsafe { self.htsfile().as_ref() }.expect("bug: null pointer to htsFile");
-        let ret = match htsfile.format.format {
-            htslib::htsExactFormat_cram => unsafe {
-                i64::from(htslib::cram_seek(
-                    htsfile.fp.cram,
-                    offset as libc::off_t,
-                    libc::SEEK_SET,
-                ))
-            },
-            _ => unsafe { htslib::bgzf_seek(htsfile.fp.bgzf, offset, libc::SEEK_SET) },
-        };
+        if htsfile.format.format != htslib::htsExactFormat_bam {
+            return Err(Error::BamVirtualOffsetUnsupported);
+        }
+
+        let ret = unsafe { htslib::bgzf_seek(htsfile.fp.bgzf, offset, libc::SEEK_SET) };
 
         if ret == 0 {
             Ok(())
@@ -207,12 +204,17 @@ pub trait Read: Sized {
         }
     }
 
-    /// Report the current virtual offset
-    fn tell(&self) -> i64 {
+    /// Report the current BAM virtual offset.
+    ///
+    /// Virtual offsets are only supported for BAM files.
+    fn tell(&self) -> Result<i64> {
         // this reimplements the bgzf_tell macro
         let htsfile = unsafe { self.htsfile().as_ref() }.expect("bug: null pointer to htsFile");
+        if htsfile.format.format != htslib::htsExactFormat_bam {
+            return Err(Error::BamVirtualOffsetUnsupported);
+        }
         let bgzf = unsafe { *htsfile.fp.bgzf };
-        (bgzf.block_address << 16) | (i64::from(bgzf.block_offset) & 0xFFFF)
+        Ok((bgzf.block_address << 16) | (i64::from(bgzf.block_offset) & 0xFFFF))
     }
 
     /// Activate multi-threaded BAM read support in htslib. This should permit faster
@@ -330,21 +332,35 @@ impl Reader {
         })
     }
 
-    /// Iterator over the records between the (optional) virtual offsets `start` and `end`
+    /// Iterator over the records between the optional BAM virtual offsets `start` and `end`.
     ///
     /// # Arguments
     ///
-    /// * `start` - Optional starting virtual offset to seek to. Throws an error if it is not
-    ///   a valid virtual offset.
+    /// * `start` - Optional starting virtual offset to seek to.
     ///
-    /// * `end` - Read until the virtual offset is less than `end`
-    pub fn iter_chunk(&mut self, start: Option<i64>, end: Option<i64>) -> ChunkIterator<'_, Self> {
+    /// * `end` - Read until the virtual offset is less than `end`.
+    ///
+    /// Virtual offsets are only supported for BAM files.
+    pub fn iter_chunk(
+        &mut self,
+        start: Option<i64>,
+        end: Option<i64>,
+    ) -> Result<ChunkIterator<'_, Self>> {
+        if (start.is_some() || end.is_some())
+            && unsafe { self.htsfile.as_ref() }
+                .expect("bug: null pointer to htsFile")
+                .format
+                .format
+                != htslib::htsExactFormat_bam
+        {
+            return Err(Error::BamVirtualOffsetUnsupported);
+        }
+
         if let Some(pos) = start {
-            self.seek(pos)
-                .expect("Failed to seek to the starting position");
+            self.seek(pos)?;
         };
 
-        ChunkIterator { reader: self, end }
+        Ok(ChunkIterator { reader: self, end })
     }
 
     /// Set the reference path for reading CRAM files.
@@ -1313,7 +1329,11 @@ impl<R: Read> Iterator for ChunkIterator<'_, R> {
     type Item = Result<record::Record>;
     fn next(&mut self) -> Option<Result<record::Record>> {
         if let Some(pos) = self.end {
-            if self.reader.tell() >= pos {
+            let offset = match self.reader.tell() {
+                Ok(offset) => offset,
+                Err(err) => return Some(Err(err)),
+            };
+            if offset >= pos {
                 return None;
             }
         }
@@ -1663,14 +1683,14 @@ CCCCCCCCCCCCCCCCCCC"[..],
 
         let mut names_by_voffset = HashMap::new();
 
-        let mut offset = bam.tell();
+        let mut offset = bam.tell().unwrap();
         let mut rec = Record::new();
         while let Some(r) = bam.read(&mut rec) {
             r.expect("error reading bam");
             let qname = str::from_utf8(rec.qname()).unwrap().to_string();
             println!("{} {}", offset, qname);
             names_by_voffset.insert(offset, qname);
-            offset = bam.tell();
+            offset = bam.tell().unwrap();
         }
 
         for (offset, qname) in names_by_voffset.iter() {
@@ -1682,6 +1702,44 @@ CCCCCCCCCCCCCCCCCCC"[..],
             let rec_qname = str::from_utf8(rec.qname()).unwrap().to_string();
             assert_eq!(qname, &rec_qname);
         }
+    }
+
+    #[test]
+    fn test_iter_chunk_with_bam_virtual_offsets() {
+        let mut bam = Reader::from_path("test/test.bam").unwrap();
+        let start = bam.tell().unwrap();
+        let mut record = Record::new();
+        bam.read(&mut record).unwrap().unwrap();
+        let end = bam.tell().unwrap();
+        let expected_qname = record.qname().to_vec();
+
+        let records: Vec<_> = bam
+            .iter_chunk(Some(start), Some(end))
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].qname(), expected_qname);
+    }
+
+    #[test]
+    fn test_virtual_offsets_are_unsupported_for_sam_and_cram() {
+        let mut sam = Reader::from_path("test/bam2sam_out.sam").unwrap();
+        assert_eq!(sam.tell(), Err(Error::BamVirtualOffsetUnsupported));
+        assert_eq!(sam.seek(0), Err(Error::BamVirtualOffsetUnsupported));
+        assert!(matches!(
+            sam.iter_chunk(None, Some(0)),
+            Err(Error::BamVirtualOffsetUnsupported)
+        ));
+
+        let mut cram = Reader::from_path("test/test_cram.cram").unwrap();
+        cram.set_reference("test/test_cram.fa").unwrap();
+        assert_eq!(cram.tell(), Err(Error::BamVirtualOffsetUnsupported));
+        assert_eq!(cram.seek(0), Err(Error::BamVirtualOffsetUnsupported));
+        assert!(matches!(
+            cram.iter_chunk(None, Some(0)),
+            Err(Error::BamVirtualOffsetUnsupported)
+        ));
     }
 
     #[test]
@@ -2195,7 +2253,7 @@ CCCCCCCCCCCCCCCCCCC"[..],
                 let mut bam = Reader::from_path(p).expect("Error opening file.");
                 bam.set_thread_pool(&pool).unwrap();
 
-                for (i, _rec) in bam.iter_chunk(None, None).enumerate() {
+                for (i, _rec) in bam.iter_chunk(None, None).unwrap().enumerate() {
                     let idx = i % names.len();
 
                     let rec = _rec.expect("Failed to read record.");

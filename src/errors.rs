@@ -83,6 +83,8 @@ pub enum Error {
     BamHeaderAllocation,
     #[error("failed to parse SAM header")]
     BamHeaderParse,
+    #[error("virtual offsets are only supported for BAM files")]
+    BamVirtualOffsetUnsupported,
 
     // Errors for BAM auxiliary fields
     #[error("failed to add aux field (out of memory?)")]
