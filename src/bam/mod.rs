@@ -1780,6 +1780,23 @@ CCCCCCCCCCCCCCCCCCC"[..],
     }
 
     #[test]
+    fn test_push_aux_rejects_short_tags() {
+        let mut rec = Record::new();
+
+        assert_eq!(
+            rec.push_aux(b"", Aux::I32(15)),
+            Err(Error::BamAuxStringError)
+        );
+        assert_eq!(
+            rec.push_aux(b"N", Aux::I32(15)),
+            Err(Error::BamAuxStringError)
+        );
+
+        rec.push_aux(b"NM_extra", Aux::I32(15)).unwrap();
+        assert_eq!(rec.aux(b"NM"), Ok(Aux::I32(15)));
+    }
+
+    #[test]
     fn test_set_repeated() {
         let mut rec = Record::new();
         rec.set(
