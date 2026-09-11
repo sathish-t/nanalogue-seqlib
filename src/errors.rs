@@ -29,6 +29,10 @@ pub enum Error {
 
     #[error("failed to write BAM/BCF record (out of disk space?)")]
     WriteRecord,
+    #[error("failed to write SAM/BAM/CRAM header")]
+    WriteHeader,
+    #[error("failed to close SAM/BAM/CRAM writer")]
+    WriteClose,
 
     // Errors for faidx
     #[error("The given position is too large to be converted to i64")]
@@ -63,6 +67,8 @@ pub enum Error {
     BamInvalidRecord,
     #[error("truncated record in SAM/BAM/CRAM file")]
     BamTruncatedRecord,
+    #[error("failed to read record from SAM/BAM/CRAM file")]
+    BamRead,
     #[error(
         "format not indexable by htslib (format is detected as something else than SAM/BAM/CRAM)"
     )]

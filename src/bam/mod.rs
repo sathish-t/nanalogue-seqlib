@@ -53,6 +53,16 @@ unsafe fn set_thread_pool(htsfile: *mut htslib::htsFile, tpool: &ThreadPool) -> 
     }
 }
 
+fn read_result(status: i32) -> Option<Result<()>> {
+    match status {
+        -1 => None,
+        -2 => Some(Err(Error::BamTruncatedRecord)),
+        -4 => Some(Err(Error::BamInvalidRecord)),
+        status if status < -1 => Some(Err(Error::BamRead)),
+        _ => Some(Ok(())),
+    }
+}
+
 /// # Safety
 ///
 /// Set the reference FAI index path in a `htslib::htsFile` struct for reading CRAM format.
@@ -360,22 +370,19 @@ impl Read for Reader {
     /// ```
     fn read(&mut self, record: &mut record::Record) -> Option<Result<()>> {
         record.clear_cigar_cache();
-        match unsafe {
+        let result = read_result(unsafe {
             htslib::sam_read1(
                 self.htsfile,
                 self.header().inner_ptr() as *mut hts_sys::sam_hdr_t,
                 record.inner_ptr_mut(),
             )
-        } {
-            -1 => None,
-            -2 => Some(Err(Error::BamTruncatedRecord)),
-            -4 => Some(Err(Error::BamInvalidRecord)),
-            _ => {
-                record.set_header(Arc::clone(&self.header));
+        });
 
-                Some(Ok(()))
-            }
+        if matches!(result, Some(Ok(()))) {
+            record.set_header(Arc::clone(&self.header));
         }
+
+        result
     }
 
     /// Iterator over the records of the fetched region.
@@ -953,16 +960,13 @@ impl Read for IndexedReader {
         match self.itr {
             Some(itr) => {
                 record.clear_cigar_cache();
-                match itr_next(self.htsfile, itr, record.inner_ptr_mut()) {
-                    -1 => None,
-                    -2 => Some(Err(Error::BamTruncatedRecord)),
-                    -4 => Some(Err(Error::BamInvalidRecord)),
-                    _ => {
-                        record.set_header(Arc::clone(&self.header));
+                let result = read_result(itr_next(self.htsfile, itr, record.inner_ptr_mut()));
 
-                        Some(Ok(()))
-                    }
+                if matches!(result, Some(Ok(()))) {
+                    record.set_header(Arc::clone(&self.header));
                 }
+
+                result
             }
             None => None,
         }
@@ -1033,7 +1037,7 @@ impl Format {
 /// A BAM writer.
 #[derive(Debug)]
 pub struct Writer {
-    f: *mut htslib::htsFile,
+    f: Option<*mut htslib::htsFile>,
     header: Arc<HeaderView>,
     tpool: Option<ThreadPool>,
 }
@@ -1077,12 +1081,15 @@ impl Writer {
         let header = Arc::new(HeaderView::try_from_header(header)?);
         let f = hts_open(path, mode)?;
 
-        unsafe {
-            htslib::sam_hdr_write(f, header.inner_ptr());
+        if unsafe { htslib::sam_hdr_write(f, header.inner_ptr()) } < 0 {
+            unsafe {
+                htslib::hts_close(f);
+            }
+            return Err(Error::WriteHeader);
         }
 
         Ok(Writer {
-            f,
+            f: Some(f),
             header,
             tpool: None,
         })
@@ -1095,7 +1102,7 @@ impl Writer {
     ///
     /// * `n_threads` - number of extra background writer threads to use, must be `> 0`.
     pub fn set_threads(&mut self, n_threads: usize) -> Result<()> {
-        unsafe { set_threads(self.f, n_threads) }
+        unsafe { set_threads(self.f.expect("writer already finished"), n_threads) }
     }
 
     /// Use a shared thread-pool for writing. This permits controlling the total
@@ -1106,7 +1113,7 @@ impl Writer {
     ///
     /// * `tpool` - thread pool to use for compression work.
     pub fn set_thread_pool(&mut self, tpool: &ThreadPool) -> Result<()> {
-        unsafe { set_thread_pool(self.f, tpool)? }
+        unsafe { set_thread_pool(self.f.expect("writer already finished"), tpool)? }
         self.tpool = Some(tpool.clone());
         Ok(())
     }
@@ -1117,7 +1124,14 @@ impl Writer {
     ///
     /// * `record` - the record to write
     pub fn write(&mut self, record: &record::Record) -> Result<()> {
-        if unsafe { htslib::sam_write1(self.f, self.header.inner(), record.inner_ptr()) } == -1 {
+        if unsafe {
+            htslib::sam_write1(
+                self.f.expect("writer already finished"),
+                self.header.inner(),
+                record.inner_ptr(),
+            )
+        } < 0
+        {
             Err(Error::WriteRecord)
         } else {
             Ok(())
@@ -1135,7 +1149,7 @@ impl Writer {
     ///
     /// * `path` - path to the FASTA reference
     pub fn set_reference<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        unsafe { set_fai_filename(self.f, path) }
+        unsafe { set_fai_filename(self.f.expect("writer already finished"), path) }
     }
 
     /// Set the compression level for writing BAM/CRAM files.
@@ -1147,13 +1161,23 @@ impl Writer {
         let level = compression_level.convert()?;
         match unsafe {
             htslib::hts_set_opt(
-                self.f,
+                self.f.expect("writer already finished"),
                 htslib::hts_fmt_option_HTS_OPT_COMPRESSION_LEVEL,
                 level,
             )
         } {
             0 => Ok(()),
             _ => Err(Error::BamInvalidCompressionLevel { level }),
+        }
+    }
+
+    /// Finish writing and report any error encountered while closing the output file.
+    pub fn finish(mut self) -> Result<()> {
+        let f = self.f.take().expect("writer already finished");
+        if unsafe { htslib::hts_close(f) } < 0 {
+            Err(Error::WriteClose)
+        } else {
+            Ok(())
         }
     }
 }
@@ -1187,8 +1211,10 @@ impl CompressionLevel {
 
 impl Drop for Writer {
     fn drop(&mut self) {
-        unsafe {
-            htslib::hts_close(self.f);
+        if let Some(f) = self.f.take() {
+            unsafe {
+                htslib::hts_close(f);
+            }
         }
     }
 }
@@ -1990,6 +2016,33 @@ CCCCCCCCCCCCCCCCCCC"[..],
         }
 
         tmp.close().expect("Failed to delete temp dir");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn test_writer_finish_reports_close_error() {
+        let mut header = Header::new();
+        header.push_comment(&vec![b'x'; 128 * 1024]);
+        let writer = Writer::from_path("/dev/full", &header, Format::Bam).unwrap();
+
+        assert_eq!(writer.finish(), Err(Error::WriteClose));
+    }
+
+    #[test]
+    fn test_writer_finish_closes_successfully() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let writer = Writer::from_path(tmp.path(), &Header::new(), Format::Bam).unwrap();
+
+        writer.finish().unwrap();
+    }
+
+    #[test]
+    fn test_read_result_rejects_all_error_codes() {
+        assert_eq!(read_result(-1), None);
+        assert_eq!(read_result(-2), Some(Err(Error::BamTruncatedRecord)));
+        assert_eq!(read_result(-3), Some(Err(Error::BamRead)));
+        assert_eq!(read_result(-4), Some(Err(Error::BamInvalidRecord)));
+        assert_eq!(read_result(0), Some(Ok(())));
     }
 
     #[test]
