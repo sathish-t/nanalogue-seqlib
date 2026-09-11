@@ -1,10 +1,7 @@
 //! FASTA index construction.
 
 use crate::errors::Error;
-
-extern "C" {
-    fn nanalogue_fai_build(path: *const std::ffi::c_char) -> std::ffi::c_int;
-}
+use crate::htslib;
 
 /// Build a faidx for input path.
 ///
@@ -27,7 +24,7 @@ pub fn build(
         return Err(Box::new(Error::FaidxBuildFailed { path }));
     }
     let os_path = std::ffi::CString::new(path.display().to_string())?;
-    let rc = unsafe { nanalogue_fai_build(os_path.as_ptr()) };
+    let rc = unsafe { htslib::fai_build(os_path.as_ptr()) };
     if rc < 0 {
         Err(Error::FaidxBuildFailed { path })?
     } else {

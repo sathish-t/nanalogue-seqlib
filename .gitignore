@@ -2,7 +2,6 @@
 .idea
 *~
 target
-.zig-cache
 Cargo.lock
 htslib/*
 test/out.bam
