@@ -42,7 +42,7 @@ pub fn path_to_cstring<P: AsRef<Path>>(path: &P) -> Option<ffi::CString> {
     if path.as_os_str().is_empty() {
         return None;
     }
-    path.to_str().and_then(|p| ffi::CString::new(p).ok())
+    ffi::CString::new(path_bytes(path).ok()?).ok()
 }
 
 /// Convert a path into a byte-vector
@@ -60,16 +60,28 @@ pub fn path_as_bytes<'a, P: 'a + AsRef<Path>>(path: P, must_exist: bool) -> Resu
         };
     }
     if path.exists() || !must_exist {
-        Ok(path
-            .to_str()
-            .ok_or(Error::NonUnicodePath)?
-            .as_bytes()
-            .to_owned())
+        path_bytes(path)
     } else {
         Err(Error::FileNotFound {
             path: path.to_owned(),
         })
     }
+}
+
+pub fn path_bytes(path: &Path) -> Result<Vec<u8>> {
+    #[cfg(unix)]
+    use std::os::unix::ffi::OsStrExt;
+
+    #[cfg(unix)]
+    let bytes = path.as_os_str().as_bytes().to_owned();
+    #[cfg(not(unix))]
+    let bytes = path
+        .to_str()
+        .ok_or(Error::NonUnicodePath)?
+        .as_bytes()
+        .to_owned();
+
+    Ok(bytes)
 }
 
 #[cfg(test)]
@@ -91,5 +103,15 @@ mod tests {
                 path: String::new()
             })
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_non_unicode_path_bytes() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![b'\xFF']));
+        assert_eq!(path_as_bytes(&path, false), Ok(vec![b'\xFF']));
+        assert_eq!(path_to_cstring(&path).unwrap().as_bytes(), b"\xFF");
     }
 }

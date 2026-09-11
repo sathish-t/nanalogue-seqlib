@@ -2,6 +2,7 @@
 
 use crate::errors::Error;
 use crate::htslib;
+use crate::utils;
 
 /// Build a faidx for input path.
 ///
@@ -23,7 +24,7 @@ pub fn build(
     if path.as_os_str().is_empty() {
         return Err(Box::new(Error::FaidxBuildFailed { path }));
     }
-    let os_path = std::ffi::CString::new(path.display().to_string())?;
+    let os_path = std::ffi::CString::new(utils::path_bytes(&path)?)?;
     let rc = unsafe { htslib::fai_build(os_path.as_ptr()) };
     if rc < 0 {
         Err(Error::FaidxBuildFailed { path })?
@@ -51,6 +52,25 @@ mod tests {
     fn nul_in_path() {
         let error = build("invalid\0.fa").unwrap_err();
         assert!(error.downcast_ref::<std::ffi::NulError>().is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn builds_index_for_non_unicode_filename() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir
+            .path()
+            .join(std::ffi::OsString::from_vec(b"reference-\xFF.fa".to_vec()));
+        std::fs::write(&path, b">chr1\nACGT\n").unwrap();
+
+        build(&path).unwrap();
+
+        assert_eq!(
+            std::fs::read(path.with_extension("fa.fai")).unwrap(),
+            b"chr1\t4\t6\t4\t5\n"
+        );
     }
 
     #[test]

@@ -71,14 +71,15 @@ pub unsafe fn set_fai_filename<P: AsRef<Path>>(
     fasta_path: P,
 ) -> Result<()> {
     let path = if let Some(ext) = fasta_path.as_ref().extension() {
-        fasta_path
-            .as_ref()
-            .with_extension(format!("{}.fai", ext.to_str().unwrap()))
+        let mut fai_ext = ext.to_os_string();
+        fai_ext.push(".fai");
+        fasta_path.as_ref().with_extension(fai_ext)
     } else {
         fasta_path.as_ref().with_extension(".fai")
     };
     let p: &Path = path.as_ref();
-    let c_str = ffi::CString::new(p.to_str().unwrap().as_bytes()).unwrap();
+    let c_str = ffi::CString::new(crate::utils::path_bytes(p)?)
+        .map_err(|_| Error::BamInvalidReferencePath { path: p.to_owned() })?;
     if htslib::hts_set_fai_filename(htsfile, c_str.as_ptr()) == 0 {
         Ok(())
     } else {
@@ -644,6 +645,9 @@ impl IndexedReader {
     ///
     /// * `path` - the path. Use "-" for stdin.
     fn new(path: &[u8]) -> Result<Self> {
+        let c_str = ffi::CString::new(path).map_err(|_| Error::BamOpen {
+            target: String::from_utf8_lossy(path).into_owned(),
+        })?;
         let htsfile = hts_open(path, b"r")?;
         let header = unsafe { htslib::sam_hdr_read(htsfile) };
         if header.is_null() {
@@ -652,7 +656,6 @@ impl IndexedReader {
                 target: String::from_utf8_lossy(path).to_string(),
             });
         }
-        let c_str = ffi::CString::new(path).unwrap();
         let idx = unsafe { htslib::sam_index_load(htsfile, c_str.as_ptr()) };
         if idx.is_null() {
             unsafe {
@@ -660,7 +663,7 @@ impl IndexedReader {
                 htslib::hts_close(htsfile);
             }
             Err(Error::BamInvalidIndex {
-                target: str::from_utf8(path).unwrap().to_owned(),
+                target: String::from_utf8_lossy(path).into_owned(),
             })
         } else {
             Ok(IndexedReader {
@@ -681,6 +684,12 @@ impl IndexedReader {
     /// * `path` - the path. Use "-" for stdin.
     /// * `index_path` - the index path to use
     fn new_with_index_path(path: &[u8], index_path: &[u8]) -> Result<Self> {
+        let c_str_path = ffi::CString::new(path).map_err(|_| Error::BamOpen {
+            target: String::from_utf8_lossy(path).into_owned(),
+        })?;
+        let c_str_index_path = ffi::CString::new(index_path).map_err(|_| Error::BamOpen {
+            target: String::from_utf8_lossy(index_path).into_owned(),
+        })?;
         let htsfile = hts_open(path, b"r")?;
         let header = unsafe { htslib::sam_hdr_read(htsfile) };
         if header.is_null() {
@@ -689,8 +698,6 @@ impl IndexedReader {
                 target: String::from_utf8_lossy(path).to_string(),
             });
         }
-        let c_str_path = ffi::CString::new(path).unwrap();
-        let c_str_index_path = ffi::CString::new(index_path).unwrap();
         let idx = unsafe {
             htslib::sam_index_load2(htsfile, c_str_path.as_ptr(), c_str_index_path.as_ptr())
         };
@@ -700,7 +707,7 @@ impl IndexedReader {
                 htslib::hts_close(htsfile);
             }
             Err(Error::BamInvalidIndex {
-                target: str::from_utf8(path).unwrap().to_owned(),
+                target: String::from_utf8_lossy(path).into_owned(),
             })
         } else {
             Ok(IndexedReader {
@@ -1348,13 +1355,15 @@ impl<R: Read> Iterator for ChunkIterator<'_, R> {
 
 /// Wrapper for opening a BAM file.
 fn hts_open(path: &[u8], mode: &[u8]) -> Result<*mut htslib::htsFile> {
-    let cpath = ffi::CString::new(path).unwrap();
-    let path = str::from_utf8(path).unwrap();
+    let cpath = ffi::CString::new(path).map_err(|_| Error::BamOpen {
+        target: String::from_utf8_lossy(path).into_owned(),
+    })?;
+    let path = String::from_utf8_lossy(path);
     let c_str = ffi::CString::new(mode).unwrap();
     let ret = unsafe { htslib::hts_open(cpath.as_ptr(), c_str.as_ptr()) };
     if ret.is_null() {
         Err(Error::BamOpen {
-            target: path.to_owned(),
+            target: path.into_owned(),
         })
     } else {
         if !mode.contains(&b'w') {
@@ -1367,7 +1376,7 @@ fn hts_open(path: &[u8], mode: &[u8]) -> Result<*mut htslib::htsFile> {
                 {
                     htslib::hts_close(ret);
                     return Err(Error::BamOpen {
-                        target: path.to_owned(),
+                        target: path.into_owned(),
                     });
                 }
             }
@@ -1675,6 +1684,27 @@ CCCCCCCCCCCCCCCCCCC"[..],
             let qual: Vec<u8> = quals[i].iter().map(|&q| q - 33).collect();
             assert_eq!(rec.qual(), &qual[..]);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reads_non_unicode_filename() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir
+            .path()
+            .join(std::ffi::OsString::from_vec(b"input-\xFF.bam".to_vec()));
+        fs::copy("test/test.bam", &path).unwrap();
+
+        let record = Reader::from_path(&path)
+            .unwrap()
+            .records()
+            .next()
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.qname(), b"I");
     }
 
     #[test]
