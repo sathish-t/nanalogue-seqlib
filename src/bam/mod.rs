@@ -12,7 +12,7 @@ pub mod record;
 
 use std::ffi;
 use std::os::raw::c_char;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::slice;
 use std::str;
@@ -84,6 +84,22 @@ pub unsafe fn set_fai_filename<P: AsRef<Path>>(
     } else {
         Err(Error::BamInvalidReferencePath { path: p.to_owned() })
     }
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_owned())
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .map_err(|_| Error::FileOpen {
+                path: path.display().to_string(),
+            })
+    }
+}
+
+fn absolute_path_as_bytes<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+    path_as_bytes(absolute_path(path.as_ref())?, true)
 }
 
 /// A trait for a BAM reader with a read method.
@@ -579,6 +595,8 @@ pub struct IndexedReader {
     idx: Option<IndexView>,
     itr: Option<*mut htslib::hts_itr_t>,
     tpool: Option<ThreadPool>,
+    source: Vec<u8>,
+    reference_path: Option<PathBuf>,
 }
 
 unsafe impl Send for IndexedReader {}
@@ -590,12 +608,12 @@ impl IndexedReader {
     ///
     /// * `path` - the path to open.
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        Self::new(&path_as_bytes(path, true)?)
+        Self::new(&absolute_path_as_bytes(path)?)
     }
 
     pub fn from_path_and_index<P: AsRef<Path>>(path: P, index_path: P) -> Result<Self> {
         Self::new_with_index_path(
-            &path_as_bytes(path, true)?,
+            &absolute_path_as_bytes(path)?,
             &path_as_bytes(index_path, true)?,
         )
     }
@@ -635,6 +653,8 @@ impl IndexedReader {
                 idx: Some(IndexView::new(idx)),
                 itr: None,
                 tpool: None,
+                source: path.to_vec(),
+                reference_path: None,
             })
         }
     }
@@ -673,6 +693,8 @@ impl IndexedReader {
                 idx: Some(IndexView::new(idx)),
                 itr: None,
                 tpool: None,
+                source: path.to_vec(),
+                reference_path: None,
             })
         }
     }
@@ -789,12 +811,16 @@ impl IndexedReader {
     }
 
     /// Set the reference path for reading CRAM files.
+    /// This reference is also used by CRAM [`index_stats`](Self::index_stats) scans.
     ///
     /// # Arguments
     ///
     /// * `path` - path to the FASTA reference
     pub fn set_reference<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        unsafe { set_fai_filename(self.htsfile, path) }
+        let path = absolute_path(path.as_ref())?;
+        unsafe { set_fai_filename(self.htsfile, &path) }?;
+        self.reference_path = Some(path);
+        Ok(())
     }
 
     pub fn index(&self) -> &IndexView {
@@ -804,15 +830,21 @@ impl IndexedReader {
     // Analogous to slow_idxstats in samtools, see
     // https://github.com/samtools/samtools/blob/556c60fdff977c0e6cadc4c2581661f187098b4d/bam_index.c#L140-L199
     unsafe fn slow_idxstats(&mut self) -> Result<Vec<(i64, u64, u64, u64)>> {
-        self.set_cram_options(
+        // Stats require a full scan for CRAM. Use a separate reader so this does not consume
+        // the caller's iterator or change its CRAM decoding options.
+        let mut stats_reader = Reader::new(&self.source)?;
+        if let Some(reference_path) = &self.reference_path {
+            stats_reader.set_reference(reference_path)?;
+        }
+        stats_reader.set_cram_options(
             hts_sys::hts_fmt_option_CRAM_OPT_REQUIRED_FIELDS,
             hts_sys::sam_fields_SAM_RNAME | hts_sys::sam_fields_SAM_FLAG,
         )?;
-        let header = self.header();
+        let header = stats_reader.header();
         let h = header.inner;
         let mut ret;
         let mut last_tid = -2;
-        let fp = self.htsfile();
+        let fp = stats_reader.htsfile();
 
         let nref =
             usize::try_from(hts_sys::sam_hdr_nref(h)).map_err(|_| Error::NoSequencesInReference)?;
@@ -872,6 +904,9 @@ impl IndexedReader {
     /// containing the target id, length, number of mapped reads, and number of unmapped reads.
     /// The last entry in the vector corresponds to the unmapped reads for the entire file, with
     /// the tid set to -1.
+    ///
+    /// CRAM files are scanned through an independent reader, so this does not consume or alter
+    /// the current fetched region.
     pub fn index_stats(&mut self) -> Result<Vec<(i64, u64, u64, u64)>> {
         let header = self.header();
         let index = self.index();
@@ -2737,6 +2772,89 @@ CCCCCCCCCCCCCCCCCCC"[..],
         ];
         let actual = reader.index_stats().unwrap();
         assert_eq!(expected, actual);
+        assert_eq!(expected, reader.index_stats().unwrap());
+    }
+
+    #[test]
+    fn test_slow_idxstats_cram_preserves_fetch_reader() {
+        let mut reader = IndexedReader::from_path("test/test_cram.cram").unwrap();
+        reader.set_reference("test/test_cram.fa").unwrap();
+        reader.fetch(("chr1", 0, 120)).unwrap();
+        let expected_stats = vec![
+            (0, 120, 2, 0),
+            (1, 120, 2, 0),
+            (2, 120, 2, 0),
+            (-1, 0, 0, 0),
+        ];
+
+        let mut first = Record::new();
+        reader.read(&mut first).unwrap().unwrap();
+        let expected_next = {
+            let mut expected = IndexedReader::from_path("test/test_cram.cram").unwrap();
+            expected.set_reference("test/test_cram.fa").unwrap();
+            expected.fetch(("chr1", 0, 120)).unwrap();
+            let mut record = Record::new();
+            expected.read(&mut record).unwrap().unwrap();
+            expected.read(&mut record).unwrap().unwrap();
+            (
+                record.qname().to_vec(),
+                record.tid(),
+                record.pos(),
+                record.cigar().to_string(),
+                record.seq().as_bytes(),
+            )
+        };
+
+        assert_eq!(reader.index_stats().unwrap(), expected_stats);
+        assert_eq!(reader.index_stats().unwrap(), expected_stats);
+
+        let mut next = Record::new();
+        reader.read(&mut next).unwrap().unwrap();
+        assert_eq!(
+            (
+                next.qname().to_vec(),
+                next.tid(),
+                next.pos(),
+                next.cigar().to_string(),
+                next.seq().as_bytes(),
+            ),
+            expected_next
+        );
+        assert!(reader.read(&mut next).is_none());
+    }
+
+    #[test]
+    fn test_slow_idxstats_cram_after_working_directory_change() {
+        const CHILD_ENV: &str = "RUST_HTSLIB_TEST_INDEX_STATS_AFTER_CHDIR";
+
+        if std::env::var_os(CHILD_ENV).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "bam::tests::test_slow_idxstats_cram_after_working_directory_change",
+                    "--nocapture",
+                ])
+                .env(CHILD_ENV, "1")
+                .status()
+                .unwrap();
+            assert!(status.success());
+            return;
+        }
+
+        let mut reader = IndexedReader::from_path("test/test_cram.cram").unwrap();
+        reader.set_reference("test/test_cram.fa").unwrap();
+        let tempdir = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(tempdir.path()).unwrap();
+
+        assert_eq!(
+            reader.index_stats().unwrap(),
+            vec![
+                (0, 120, 2, 0),
+                (1, 120, 2, 0),
+                (2, 120, 2, 0),
+                (-1, 0, 0, 0),
+            ]
+        );
     }
 
     #[test]
