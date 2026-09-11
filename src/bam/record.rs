@@ -1379,8 +1379,11 @@ pub struct Seq<'a> {
 
 impl Seq<'_> {
     /// Return encoded base. Complexity: O(1).
+    ///
+    /// Panics if `i` is outside the sequence.
     #[inline]
     pub fn encoded_base(&self, i: usize) -> u8 {
+        assert!(i < self.len, "sequence index out of bounds");
         encoded_base(self.encoded, i)
     }
 
@@ -1403,6 +1406,8 @@ impl ops::Index<usize> for Seq<'_> {
     type Output = u8;
 
     /// Return decoded base at given position within read. Complexity: O(1).
+    ///
+    /// Panics if `index` is outside the sequence.
     fn index(&self, index: usize) -> &u8 {
         decode_base_unchecked(self.encoded_base(index))
     }
@@ -1711,6 +1716,36 @@ mod tests {
             Ok(Aux::ArrayI16(array)) if array.iter().eq([2, 3])
         ));
         assert_eq!(record.aux(b"ZZ"), Err(Error::BamAuxTagNotFound));
+    }
+
+    #[test]
+    fn seq_odd_length_returns_final_base() {
+        let mut record = Record::new();
+        record.set(b"read", None, b"ACG", &[30; 3]);
+
+        let seq = record.seq();
+        assert_eq!(seq.encoded_base(2), 4);
+        assert_eq!(seq[2], b'G');
+    }
+
+    #[test]
+    #[should_panic(expected = "sequence index out of bounds")]
+    fn seq_odd_length_rejects_padding_base() {
+        let mut record = Record::new();
+        record.set(b"read", None, b"ACG", &[30; 3]);
+
+        let seq = record.seq();
+        let _ = seq.encoded_base(3);
+    }
+
+    #[test]
+    #[should_panic(expected = "sequence index out of bounds")]
+    fn seq_index_rejects_odd_length_padding_base() {
+        let mut record = Record::new();
+        record.set(b"read", None, b"ACG", &[30; 3]);
+
+        let seq = record.seq();
+        let _ = seq[3];
     }
 
     #[test]
