@@ -173,6 +173,7 @@ impl Record {
 
     /// Set position (0-based).
     pub fn set_pos(&mut self, pos: i64) {
+        self.cigar = None;
         self.inner_mut_unchecked().core.pos = pos;
     }
 
@@ -418,6 +419,10 @@ impl Record {
     /// Decode the cigar string and cache it inside the `Record`
     pub fn cache_cigar(&mut self) {
         self.cigar = Some(self.unpack_cigar())
+    }
+
+    pub(crate) fn clear_cigar_cache(&mut self) {
+        self.cigar = None;
     }
 
     /// Unpack cigar string. Complexity: O(k) with k being the length of the cigar string.
@@ -1712,5 +1717,19 @@ mod tests {
         for op in &cigar {
             println!("{}", op);
         }
+    }
+
+    #[test]
+    fn test_set_pos_invalidates_cached_cigar() {
+        let mut record = Record::new();
+        let cigar = CigarString(vec![Cigar::Match(1)]);
+        record.set(b"read", Some(&cigar), b"A", &[30]);
+        record.set_pos(10);
+        record.cache_cigar();
+
+        record.set_pos(100);
+
+        assert!(record.cigar_cached().is_none());
+        assert_eq!(record.cigar().end_pos(), 101);
     }
 }

@@ -359,6 +359,7 @@ impl Read for Reader {
     /// # Ok::<(), Error>(())
     /// ```
     fn read(&mut self, record: &mut record::Record) -> Option<Result<()>> {
+        record.clear_cigar_cache();
         match unsafe {
             htslib::sam_read1(
                 self.htsfile,
@@ -930,16 +931,19 @@ impl Drop for IndexView {
 impl Read for IndexedReader {
     fn read(&mut self, record: &mut record::Record) -> Option<Result<()>> {
         match self.itr {
-            Some(itr) => match itr_next(self.htsfile, itr, record.inner_ptr_mut()) {
-                -1 => None,
-                -2 => Some(Err(Error::BamTruncatedRecord)),
-                -4 => Some(Err(Error::BamInvalidRecord)),
-                _ => {
-                    record.set_header(Arc::clone(&self.header));
+            Some(itr) => {
+                record.clear_cigar_cache();
+                match itr_next(self.htsfile, itr, record.inner_ptr_mut()) {
+                    -1 => None,
+                    -2 => Some(Err(Error::BamTruncatedRecord)),
+                    -4 => Some(Err(Error::BamInvalidRecord)),
+                    _ => {
+                        record.set_header(Arc::clone(&self.header));
 
-                    Some(Ok(()))
+                        Some(Ok(()))
+                    }
                 }
-            },
+            }
             None => None,
         }
     }
@@ -2157,6 +2161,38 @@ CCCCCCCCCCCCCCCCCCC"[..],
             let cigar = rec.cigar();
             assert_eq!(*cigar, cigars[i]);
         }
+    }
+
+    #[test]
+    fn test_reader_reuse_invalidates_cached_cigar() {
+        let mut reader = Reader::from_path("test/test.bam").unwrap();
+        let mut record = Record::new();
+
+        reader.read(&mut record).unwrap().unwrap();
+        record.cache_cigar();
+        for _ in 1..6 {
+            reader.read(&mut record).unwrap().unwrap();
+        }
+
+        assert!(record.cigar_cached().is_none());
+        assert_eq!(format!("{}", record.cigar()), "27M100000D73M");
+    }
+
+    #[test]
+    fn test_indexed_reader_reuse_invalidates_cached_cigar() {
+        let mut reader = IndexedReader::from_path("test/test.bam").unwrap();
+        let tid = reader.header().tid(b"CHROMOSOME_I").unwrap();
+        reader.fetch((tid, 0, 2)).unwrap();
+        let mut record = Record::new();
+
+        reader.read(&mut record).unwrap().unwrap();
+        record.cache_cigar();
+        for _ in 1..6 {
+            reader.read(&mut record).unwrap().unwrap();
+        }
+
+        assert!(record.cigar_cached().is_none());
+        assert_eq!(format!("{}", record.cigar()), "27M100000D73M");
     }
 
     #[test]
