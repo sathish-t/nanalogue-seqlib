@@ -8,10 +8,8 @@
 use crate::errors::{Error, Result};
 use std::ffi;
 use std::path::Path;
-use std::ptr;
 
 /// Copies data from `src` to `dst`
-/// TODO remove once stable in standard library.
 ///
 /// Panics if the length of `dst` is less than the length of `src`.
 #[inline]
@@ -30,11 +28,7 @@ pub fn copy_memory(src: &[u8], dst: &mut [u8]) {
         dst.len(),
         src.len()
     );
-    // `dst` is unaliasable, so we know statically it doesn't overlap
-    // with `src`.
-    unsafe {
-        ptr::copy_nonoverlapping(src.as_ptr(), dst.as_mut_ptr(), len_src);
-    }
+    dst[..len_src].copy_from_slice(src);
 }
 
 pub fn path_to_cstring<P: AsRef<Path>>(path: &P) -> Option<ffi::CString> {
@@ -113,5 +107,32 @@ mod tests {
         let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(vec![b'\xFF']));
         assert_eq!(path_as_bytes(&path, false), Ok(vec![b'\xFF']));
         assert_eq!(path_to_cstring(&path).unwrap().as_bytes(), b"\xFF");
+    }
+
+    #[test]
+    fn copy_memory_copies_only_the_source_prefix() {
+        let src = [1, 2, 3];
+        let mut dst = [0, 0, 0, 9, 9];
+
+        copy_memory(&src, &mut dst);
+
+        assert_eq!(dst, [1, 2, 3, 9, 9]);
+    }
+
+    #[test]
+    fn copy_memory_accepts_an_empty_source() {
+        let mut dst = [9, 9];
+
+        copy_memory(&[], &mut dst);
+
+        assert_eq!(dst, [9, 9]);
+    }
+
+    #[test]
+    #[should_panic(expected = "dst len 2 < src len 3")]
+    fn copy_memory_rejects_a_too_short_destination() {
+        let mut dst = [0, 0];
+
+        copy_memory(&[1, 2, 3], &mut dst);
     }
 }
