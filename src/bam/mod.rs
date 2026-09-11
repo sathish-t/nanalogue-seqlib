@@ -930,18 +930,16 @@ impl Drop for IndexView {
 impl Read for IndexedReader {
     fn read(&mut self, record: &mut record::Record) -> Option<Result<()>> {
         match self.itr {
-            Some(itr) => {
-                match itr_next(self.htsfile, itr, &mut record.inner as *mut htslib::bam1_t) {
-                    -1 => None,
-                    -2 => Some(Err(Error::BamTruncatedRecord)),
-                    -4 => Some(Err(Error::BamInvalidRecord)),
-                    _ => {
-                        record.set_header(Arc::clone(&self.header));
+            Some(itr) => match itr_next(self.htsfile, itr, record.inner_ptr_mut()) {
+                -1 => None,
+                -2 => Some(Err(Error::BamTruncatedRecord)),
+                -4 => Some(Err(Error::BamInvalidRecord)),
+                _ => {
+                    record.set_header(Arc::clone(&self.header));
 
-                        Some(Ok(()))
-                    }
+                    Some(Ok(()))
                 }
-            }
+            },
             None => None,
         }
     }
@@ -1359,8 +1357,15 @@ impl HeaderView {
         self.inner
     }
 
+    /// Returns the underlying HTSlib header for mutation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must preserve the ownership and pointer invariants of every
+    /// `bam_hdr_t` field. In particular, pointers must remain valid and owned
+    /// by HTSlib-compatible allocation routines.
     #[inline]
-    pub fn inner_mut(&mut self) -> &mut htslib::bam_hdr_t {
+    pub unsafe fn inner_mut(&mut self) -> &mut htslib::bam_hdr_t {
         unsafe { self.inner.as_mut().unwrap() }
     }
 

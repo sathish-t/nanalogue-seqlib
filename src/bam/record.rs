@@ -34,11 +34,11 @@ macro_rules! flag {
         flag!($get, $bit);
 
         pub fn $set(&mut self) {
-            self.inner_mut().core.flag |= $bit;
+            self.inner_mut_unchecked().core.flag |= $bit;
         }
 
         pub fn $unset(&mut self) {
-            self.inner_mut().core.flag &= !$bit;
+            self.inner_mut_unchecked().core.flag &= !$bit;
         }
     };
 }
@@ -47,7 +47,7 @@ macro_rules! flag {
 ///
 /// Each record owns the allocation referenced by `inner.data` and frees it when dropped.
 pub struct Record {
-    pub inner: htslib::bam1_t,
+    inner: htslib::bam1_t,
     cigar: Option<CigarStringView>,
     header: Option<Arc<HeaderView>>,
 }
@@ -124,8 +124,20 @@ impl Record {
         unsafe { slice::from_raw_parts(self.inner().data, self.inner().l_data as usize) }
     }
 
+    /// Returns the underlying HTSlib record for mutation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must preserve all `bam1_t` ownership, pointer, length, and
+    /// layout invariants. In particular, `data` must remain allocated with the
+    /// allocator expected by HTSlib and `l_data` must not exceed `m_data`.
     #[inline]
-    pub fn inner_mut(&mut self) -> &mut htslib::bam1_t {
+    pub unsafe fn inner_mut(&mut self) -> &mut htslib::bam1_t {
+        &mut self.inner
+    }
+
+    #[inline]
+    fn inner_mut_unchecked(&mut self) -> &mut htslib::bam1_t {
         &mut self.inner
     }
 
@@ -151,7 +163,7 @@ impl Record {
 
     /// Set target id.
     pub fn set_tid(&mut self, tid: i32) {
-        self.inner_mut().core.tid = tid;
+        self.inner_mut_unchecked().core.tid = tid;
     }
 
     /// Get position (0-based).
@@ -161,7 +173,7 @@ impl Record {
 
     /// Set position (0-based).
     pub fn set_pos(&mut self, pos: i64) {
-        self.inner_mut().core.pos = pos;
+        self.inner_mut_unchecked().core.pos = pos;
     }
 
     /// Get MAPQ.
@@ -171,7 +183,7 @@ impl Record {
 
     /// Set MAPQ.
     pub fn set_mapq(&mut self, mapq: u8) {
-        self.inner_mut().core.qual = mapq;
+        self.inner_mut_unchecked().core.qual = mapq;
     }
 
     /// Get raw flags.
@@ -181,22 +193,22 @@ impl Record {
 
     /// Set raw flags.
     pub fn set_flags(&mut self, flags: u16) {
-        self.inner_mut().core.flag = flags;
+        self.inner_mut_unchecked().core.flag = flags;
     }
 
     /// Unset all flags.
     pub fn unset_flags(&mut self) {
-        self.inner_mut().core.flag = 0;
+        self.inner_mut_unchecked().core.flag = 0;
     }
 
     /// Set target id of mate.
     pub fn set_mtid(&mut self, mtid: i32) {
-        self.inner_mut().core.mtid = mtid;
+        self.inner_mut_unchecked().core.mtid = mtid;
     }
 
     /// Set mate position.
     pub fn set_mpos(&mut self, mpos: i64) {
-        self.inner_mut().core.mpos = mpos;
+        self.inner_mut_unchecked().core.mpos = mpos;
     }
 
     fn qname_capacity(&self) -> usize {
@@ -241,7 +253,7 @@ impl Record {
         let new_aux_offset = q_len + extranul + cigar_width + seq.len().div_ceil(2) + qual.len();
         assert!(orig_aux_offset <= self.inner.l_data as usize);
         let aux_len = self.inner.l_data as usize - orig_aux_offset;
-        self.inner_mut().l_data = (new_aux_offset + aux_len) as i32;
+        self.inner_mut_unchecked().l_data = (new_aux_offset + aux_len) as i32;
         if (self.inner().m_data as i32) < self.inner().l_data {
             // Verbosity due to lexical borrowing
             let l_data = self.inner().l_data;
@@ -264,8 +276,8 @@ impl Record {
             data[qname.len() + i] = b'\0';
         }
         let mut i = q_len + extranul;
-        self.inner_mut().core.l_qname = i as u16;
-        self.inner_mut().core.l_extranul = extranul as u8;
+        self.inner_mut_unchecked().core.l_qname = i as u16;
+        self.inner_mut_unchecked().core.l_extranul = extranul as u8;
 
         // cigar
         if let Some(cigar_string) = cigar {
@@ -277,10 +289,10 @@ impl Record {
             for (i, c) in cigar_string.iter().enumerate() {
                 cigar_data[i] = c.encode();
             }
-            self.inner_mut().core.n_cigar = cigar_string.len() as u32;
+            self.inner_mut_unchecked().core.n_cigar = cigar_string.len() as u32;
             i += cigar_string.len() * 4;
         } else {
-            self.inner_mut().core.n_cigar = 0;
+            self.inner_mut_unchecked().core.n_cigar = 0;
         };
 
         // seq
@@ -293,7 +305,7 @@ impl Record {
                         0
                     });
             }
-            self.inner_mut().core.l_qseq = seq.len() as i32;
+            self.inner_mut_unchecked().core.l_qseq = seq.len() as i32;
             i += seq.len().div_ceil(2);
         }
 
@@ -312,12 +324,12 @@ impl Record {
         let new_q_len = new_qname.len() + 1 + extranul;
 
         // Length of data after qname
-        let other_len = self.inner_mut().l_data - old_q_len as i32;
+        let other_len = self.inner_mut_unchecked().l_data - old_q_len as i32;
 
         if new_q_len < old_q_len && self.inner().l_data > (old_q_len as i32) {
-            self.inner_mut().l_data -= (old_q_len - new_q_len) as i32;
+            self.inner_mut_unchecked().l_data -= (old_q_len - new_q_len) as i32;
         } else if new_q_len > old_q_len {
-            self.inner_mut().l_data += (new_q_len - old_q_len) as i32;
+            self.inner_mut_unchecked().l_data += (new_q_len - old_q_len) as i32;
 
             // Reallocate if necessary
             if (self.inner().m_data as i32) < self.inner().l_data {
@@ -347,8 +359,8 @@ impl Record {
         for i in 0..=extranul {
             data[new_q_len - i - 1] = b'\0';
         }
-        self.inner_mut().core.l_qname = new_q_len as u16;
-        self.inner_mut().core.l_extranul = extranul as u8;
+        self.inner_mut_unchecked().core.l_qname = new_q_len as u16;
+        self.inner_mut_unchecked().core.l_extranul = extranul as u8;
     }
 
     fn realloc_var_data(&mut self, new_len: usize) {
@@ -369,8 +381,8 @@ impl Record {
 
         // don't update m_data until we know we have
         // a successful allocation.
-        self.inner_mut().m_data = new_request;
-        self.inner_mut().data = ptr;
+        self.inner_mut_unchecked().m_data = new_request;
+        self.inner_mut_unchecked().data = ptr;
     }
 
     pub fn cigar_len(&self) -> usize {
