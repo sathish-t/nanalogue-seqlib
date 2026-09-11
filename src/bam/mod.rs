@@ -633,17 +633,36 @@ impl<'a, T: AsRef<[u8]>, X: Into<FetchCoordinate>, Y: Into<FetchCoordinate>> Fro
 
 #[derive(Debug)]
 pub struct IndexedReader {
-    htsfile: *mut htslib::htsFile,
-    header: Arc<HeaderView>,
-    idx: Option<IndexView>,
-    itr: Option<*mut htslib::hts_itr_t>,
+    // Fields drop in this order: iterator, CRAM index, file, then retained thread pool.
+    itr: Option<IndexedReaderIterator>,
+    idx: IndexView,
+    htsfile: IndexedReaderFile,
     tpool: Option<ThreadPool>,
+    header: Arc<HeaderView>,
     source: Vec<u8>,
     reference_path: Option<PathBuf>,
     threading_configured: bool,
 }
 
 unsafe impl Send for IndexedReader {}
+
+#[derive(Debug)]
+struct IndexedReaderIterator(*mut htslib::hts_itr_t);
+
+impl Drop for IndexedReaderIterator {
+    fn drop(&mut self) {
+        unsafe { htslib::hts_itr_destroy(self.0) }
+    }
+}
+
+#[derive(Debug)]
+struct IndexedReaderFile(*mut htslib::htsFile);
+
+impl Drop for IndexedReaderFile {
+    fn drop(&mut self) {
+        unsafe { htslib::hts_close(self.0) };
+    }
+}
 
 impl IndexedReader {
     /// Create a new Reader from path.
@@ -694,11 +713,13 @@ impl IndexedReader {
             })
         } else {
             Ok(IndexedReader {
-                htsfile,
-                header: Arc::new(HeaderView::new(header)),
-                idx: Some(IndexView::new(idx)),
                 itr: None,
+                // Initialize the file before the index so a later constructor panic drops
+                // the index before the file, matching the completed-reader drop order.
+                htsfile: IndexedReaderFile(htsfile),
+                idx: IndexView::new(idx),
                 tpool: None,
+                header: Arc::new(HeaderView::new(header)),
                 source: path.to_vec(),
                 reference_path: None,
                 threading_configured: false,
@@ -739,11 +760,13 @@ impl IndexedReader {
             })
         } else {
             Ok(IndexedReader {
-                htsfile,
-                header: Arc::new(HeaderView::new(header)),
-                idx: Some(IndexView::new(idx)),
                 itr: None,
+                // Initialize the file before the index so a later constructor panic drops
+                // the index before the file, matching the completed-reader drop order.
+                htsfile: IndexedReaderFile(htsfile),
+                idx: IndexView::new(idx),
                 tpool: None,
+                header: Arc::new(HeaderView::new(header)),
                 source: path.to_vec(),
                 reference_path: None,
                 threading_configured: false,
@@ -827,23 +850,17 @@ impl IndexedReader {
     }
 
     fn _fetch_by_coord_tuple(&mut self, tid: i32, beg: i64, end: i64) -> Result<()> {
-        if let Some(itr) = self.itr {
-            unsafe { htslib::hts_itr_destroy(itr) }
-        }
         let itr = unsafe { htslib::sam_itr_queryi(self.index().inner_ptr(), tid, beg, end) };
         if itr.is_null() {
             self.itr = None;
             Err(Error::Fetch)
         } else {
-            self.itr = Some(itr);
+            self.itr = Some(IndexedReaderIterator(itr));
             Ok(())
         }
     }
 
     fn _fetch_by_str(&mut self, region: &[u8]) -> Result<()> {
-        if let Some(itr) = self.itr {
-            unsafe { htslib::hts_itr_destroy(itr) }
-        }
         let rstr = ffi::CString::new(region).unwrap();
         let rptr = rstr.as_ptr();
         let itr = unsafe {
@@ -857,7 +874,7 @@ impl IndexedReader {
             self.itr = None;
             Err(Error::Fetch)
         } else {
-            self.itr = Some(itr);
+            self.itr = Some(IndexedReaderIterator(itr));
             Ok(())
         }
     }
@@ -870,13 +887,13 @@ impl IndexedReader {
     /// * `path` - path to the FASTA reference
     pub fn set_reference<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let path = absolute_path(path.as_ref())?;
-        unsafe { set_fai_filename(self.htsfile, &path) }?;
+        unsafe { set_fai_filename(self.htsfile.0, &path) }?;
         self.reference_path = Some(path);
         Ok(())
     }
 
     pub fn index(&self) -> &IndexView {
-        self.idx.as_ref().unwrap()
+        &self.idx
     }
 
     // Analogous to slow_idxstats in samtools, see
@@ -1044,10 +1061,10 @@ impl Drop for IndexView {
 
 impl Read for IndexedReader {
     fn read(&mut self, record: &mut record::Record) -> Option<Result<()>> {
-        match self.itr {
+        match self.itr.as_ref() {
             Some(itr) => {
                 record.clear_cigar_cache();
-                let result = read_result(itr_next(self.htsfile, itr, record.inner_ptr_mut()));
+                let result = read_result(itr_next(self.htsfile.0, itr.0, record.inner_ptr_mut()));
 
                 if matches!(result, Some(Ok(()))) {
                     record.set_header(Arc::clone(&self.header));
@@ -1075,7 +1092,7 @@ impl Read for IndexedReader {
     }
 
     fn htsfile(&self) -> *mut htslib::htsFile {
-        self.htsfile
+        self.htsfile.0
     }
 
     fn header(&self) -> &HeaderView {
@@ -1088,7 +1105,7 @@ impl Read for IndexedReader {
         }
         self.tpool = Some(tpool.clone());
         self.threading_configured = true;
-        unsafe { set_thread_pool(self.htsfile(), tpool) }
+        unsafe { set_thread_pool(self.htsfile.0, tpool) }
     }
 
     fn threading_configured(&self) -> bool {
@@ -1097,21 +1114,6 @@ impl Read for IndexedReader {
 
     fn set_threading_configured(&mut self) {
         self.threading_configured = true;
-    }
-}
-
-impl Drop for IndexedReader {
-    fn drop(&mut self) {
-        unsafe {
-            if let Some(itr) = self.itr.take() {
-                htslib::hts_itr_destroy(itr);
-            }
-
-            // A CRAM index contains a pointer to the CRAM file handle.
-            // Destroy the index before hts_close frees that handle.
-            drop(self.idx.take());
-            htslib::hts_close(self.htsfile);
-        }
     }
 }
 
@@ -2118,6 +2120,13 @@ CCCCCCCCCCCCCCCCCCC"[..],
     fn test_read_indexed() {
         let bam = IndexedReader::from_path("test/test.bam").expect("Expected valid index.");
         _test_read_indexed_common(bam);
+    }
+
+    #[test]
+    fn indexed_reader_always_owns_an_index() {
+        let reader = IndexedReader::from_path("test/test.bam").unwrap();
+        let _: &IndexView = &reader.idx;
+        assert!(!reader.index().inner_ptr().is_null());
     }
 
     #[test]
