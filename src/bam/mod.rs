@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::slice;
 use std::str;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use url::Url;
 
@@ -44,7 +44,7 @@ unsafe fn set_threads(htsfile: *mut htslib::htsFile, n_threads: usize) -> Result
 }
 
 unsafe fn set_thread_pool(htsfile: *mut htslib::htsFile, tpool: &ThreadPool) -> Result<()> {
-    let mut b = tpool.handle.borrow_mut();
+    let mut b = tpool.handle.lock().unwrap();
 
     if htslib::hts_set_thread_pool(htsfile, &mut b.inner as *mut _) != 0 {
         Err(Error::ThreadPool)
@@ -228,6 +228,10 @@ pub trait Read: Sized {
     ///
     /// * `n_threads` - number of extra background writer threads to use, must be `> 0`.
     fn set_threads(&mut self, n_threads: usize) -> Result<()> {
+        if self.threading_configured() {
+            return Err(Error::SetThreads);
+        }
+        self.set_threading_configured();
         unsafe { set_threads(self.htsfile(), n_threads) }
     }
 
@@ -239,6 +243,15 @@ pub trait Read: Sized {
     ///
     /// * `tpool` - thread pool to use for compression work.
     fn set_thread_pool(&mut self, tpool: &ThreadPool) -> Result<()>;
+
+    /// Whether threading has already been configured on this file.
+    fn threading_configured(&self) -> bool {
+        false
+    }
+
+    /// Mark threading as configured before calling HTSlib, which can partially
+    /// attach a pool before reporting an error.
+    fn set_threading_configured(&mut self) {}
 
     /// If the underlying file is in CRAM format, sets the fields that htslib must decode.
     /// Note that this method does *not* check that the underlying file actually is in CRAM format.
@@ -281,6 +294,7 @@ pub struct Reader {
     htsfile: *mut htslib::htsFile,
     header: Arc<HeaderView>,
     tpool: Option<ThreadPool>,
+    threading_configured: bool,
 }
 
 unsafe impl Send for Reader {}
@@ -330,6 +344,7 @@ impl Reader {
             htsfile,
             header: Arc::new(HeaderView::new(header)),
             tpool: None,
+            threading_configured: false,
         })
     }
 
@@ -442,9 +457,20 @@ impl Read for Reader {
     }
 
     fn set_thread_pool(&mut self, tpool: &ThreadPool) -> Result<()> {
-        unsafe { set_thread_pool(self.htsfile(), tpool)? }
+        if self.threading_configured {
+            return Err(Error::ThreadPool);
+        }
         self.tpool = Some(tpool.clone());
-        Ok(())
+        self.threading_configured = true;
+        unsafe { set_thread_pool(self.htsfile(), tpool) }
+    }
+
+    fn threading_configured(&self) -> bool {
+        self.threading_configured
+    }
+
+    fn set_threading_configured(&mut self) {
+        self.threading_configured = true;
     }
 }
 
@@ -614,6 +640,7 @@ pub struct IndexedReader {
     tpool: Option<ThreadPool>,
     source: Vec<u8>,
     reference_path: Option<PathBuf>,
+    threading_configured: bool,
 }
 
 unsafe impl Send for IndexedReader {}
@@ -674,6 +701,7 @@ impl IndexedReader {
                 tpool: None,
                 source: path.to_vec(),
                 reference_path: None,
+                threading_configured: false,
             })
         }
     }
@@ -718,6 +746,7 @@ impl IndexedReader {
                 tpool: None,
                 source: path.to_vec(),
                 reference_path: None,
+                threading_configured: false,
             })
         }
     }
@@ -1054,9 +1083,20 @@ impl Read for IndexedReader {
     }
 
     fn set_thread_pool(&mut self, tpool: &ThreadPool) -> Result<()> {
-        unsafe { set_thread_pool(self.htsfile(), tpool)? }
+        if self.threading_configured {
+            return Err(Error::ThreadPool);
+        }
         self.tpool = Some(tpool.clone());
-        Ok(())
+        self.threading_configured = true;
+        unsafe { set_thread_pool(self.htsfile(), tpool) }
+    }
+
+    fn threading_configured(&self) -> bool {
+        self.threading_configured
+    }
+
+    fn set_threading_configured(&mut self) {
+        self.threading_configured = true;
     }
 }
 
@@ -1098,6 +1138,7 @@ pub struct Writer {
     f: Option<*mut htslib::htsFile>,
     header: Arc<HeaderView>,
     tpool: Option<ThreadPool>,
+    threading_configured: bool,
 }
 
 unsafe impl Send for Writer {}
@@ -1150,6 +1191,7 @@ impl Writer {
             f: Some(f),
             header,
             tpool: None,
+            threading_configured: false,
         })
     }
 
@@ -1160,6 +1202,10 @@ impl Writer {
     ///
     /// * `n_threads` - number of extra background writer threads to use, must be `> 0`.
     pub fn set_threads(&mut self, n_threads: usize) -> Result<()> {
+        if self.threading_configured {
+            return Err(Error::SetThreads);
+        }
+        self.threading_configured = true;
         unsafe { set_threads(self.f.expect("writer already finished"), n_threads) }
     }
 
@@ -1171,9 +1217,12 @@ impl Writer {
     ///
     /// * `tpool` - thread pool to use for compression work.
     pub fn set_thread_pool(&mut self, tpool: &ThreadPool) -> Result<()> {
-        unsafe { set_thread_pool(self.f.expect("writer already finished"), tpool)? }
+        if self.threading_configured {
+            return Err(Error::ThreadPool);
+        }
         self.tpool = Some(tpool.clone());
-        Ok(())
+        self.threading_configured = true;
+        unsafe { set_thread_pool(self.f.expect("writer already finished"), tpool) }
     }
 
     /// Write record to BAM.
@@ -1404,9 +1453,12 @@ fn itr_next(
 #[derive(Debug)]
 pub struct HeaderView {
     inner: *mut htslib::bam_hdr_t,
+    normalized: OnceLock<Result<()>>,
 }
 
 unsafe impl Send for HeaderView {}
+// HeaderView is shared only after its HTSlib lazy state is initialized. Raw
+// mutation invalidates that state and the next shared access restores it.
 unsafe impl Sync for HeaderView {}
 
 impl HeaderView {
@@ -1458,17 +1510,62 @@ impl HeaderView {
 
     /// Create a new HeaderView from the underlying Htslib type, and own it.
     fn new(inner: *mut htslib::bam_hdr_t) -> Self {
-        HeaderView { inner }
+        let view = HeaderView {
+            inner,
+            normalized: OnceLock::new(),
+        };
+        view.ensure_normalized();
+        view
+    }
+
+    unsafe fn normalize(inner: *mut htslib::bam_hdr_t) -> Result<()> {
+        if htslib::sam_hdr_count_lines(inner, b"SQ\0".as_ptr().cast::<c_char>()) < 0
+            || htslib::sam_hdr_length(inner) == usize::MAX
+        {
+            Err(Error::BamHeader)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn ensure_normalized(&self) {
+        let inner = self.inner;
+        if let Err(error) = self
+            .normalized
+            .get_or_init(|| unsafe { Self::normalize(inner) })
+        {
+            panic!("failed to initialize BAM header state: {}", error);
+        }
+    }
+
+    fn invalidate_normalization(&mut self) {
+        self.normalized.take();
+    }
+
+    /// Return a raw mutable header pointer.
+    ///
+    /// The pointer may only be used with exclusive access. A call opens one
+    /// raw-edit period; complete all mutations before using a safe
+    /// shared-reference API, which normalizes the header. Reacquire this
+    /// pointer before beginning another raw-edit period. Do not mutate through
+    /// pointers obtained from shared methods or while any header reference or
+    /// slice is live.
+    #[inline]
+    pub fn inner_ptr_mut(&mut self) -> *mut htslib::bam_hdr_t {
+        self.invalidate_normalization();
+        self.inner
     }
 
     #[inline]
     pub fn inner(&self) -> &htslib::bam_hdr_t {
+        self.ensure_normalized();
         unsafe { self.inner.as_ref().unwrap() }
     }
 
     #[inline]
     // Pointer to inner bam_hdr_t struct
     pub fn inner_ptr(&self) -> *const htslib::bam_hdr_t {
+        self.ensure_normalized();
         self.inner
     }
 
@@ -1481,26 +1578,25 @@ impl HeaderView {
     /// by HTSlib-compatible allocation routines.
     #[inline]
     pub unsafe fn inner_mut(&mut self) -> &mut htslib::bam_hdr_t {
+        self.invalidate_normalization();
         unsafe { self.inner.as_mut().unwrap() }
     }
 
-    #[inline]
-    // Mutable pointer to bam_hdr_t struct
-    pub fn inner_ptr_mut(&mut self) -> *mut htslib::bam_hdr_t {
-        self.inner
-    }
-
     pub fn tid(&self, name: &[u8]) -> Option<u32> {
-        let c_str = ffi::CString::new(name).expect("Expected valid name.");
-        let tid = unsafe { htslib::sam_hdr_name2tid(self.inner, c_str.as_ptr()) };
-        if tid < 0 {
-            None
-        } else {
-            Some(tid as u32)
+        self.ensure_normalized();
+        unsafe {
+            let c_str = ffi::CString::new(name).expect("Expected valid name.");
+            let tid = htslib::sam_hdr_name2tid(self.inner, c_str.as_ptr());
+            if tid < 0 {
+                None
+            } else {
+                Some(tid as u32)
+            }
         }
     }
 
     pub fn tid2name(&self, tid: u32) -> &[u8] {
+        self.ensure_normalized();
         let ptr = unsafe { htslib::sam_hdr_tid2name(self.inner, tid as i32) };
         if ptr.is_null() {
             b""
@@ -1524,6 +1620,7 @@ impl HeaderView {
     }
 
     pub fn target_len(&self, tid: u32) -> Option<u64> {
+        self.ensure_normalized();
         let inner = unsafe { *self.inner };
         if (tid as i32) < inner.n_targets {
             let l: &[u32] =
@@ -1536,6 +1633,7 @@ impl HeaderView {
 
     /// Retrieve the textual SAM header as bytes
     pub fn as_bytes(&self) -> &[u8] {
+        self.ensure_normalized();
         unsafe {
             let rebuilt_hdr = htslib::sam_hdr_str(self.inner);
             if rebuilt_hdr.is_null() {
@@ -1548,9 +1646,8 @@ impl HeaderView {
 
 impl Clone for HeaderView {
     fn clone(&self) -> Self {
-        HeaderView {
-            inner: unsafe { htslib::sam_hdr_dup(self.inner) },
-        }
+        self.ensure_normalized();
+        HeaderView::new(unsafe { htslib::sam_hdr_dup(self.inner) })
     }
 }
 
@@ -1572,6 +1669,112 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
     use std::str;
+
+    fn assert_send<T: Send>() {}
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn attached_reader_retains_shared_pool_across_threads() {
+        assert_send::<Reader>();
+        assert_send::<IndexedReader>();
+        assert_send::<Writer>();
+
+        let pool = crate::tpool::ThreadPool::new(1).unwrap();
+        let mut reader = Reader::from_path("test/test.bam").unwrap();
+        reader.set_thread_pool(&pool).unwrap();
+        drop(pool);
+
+        let record_count = std::thread::spawn(move || reader.records().count())
+            .join()
+            .unwrap();
+        assert!(record_count > 0);
+    }
+
+    #[test]
+    fn thread_pool_configuration_cannot_replace_retained_pool() {
+        let first_pool = crate::tpool::ThreadPool::new(1).unwrap();
+        let second_pool = crate::tpool::ThreadPool::new(1).unwrap();
+        let mut reader = Reader::from_path("test/test.bam").unwrap();
+
+        reader.set_thread_pool(&first_pool).unwrap();
+        assert_eq!(reader.set_thread_pool(&second_pool), Err(Error::ThreadPool));
+        assert!(Arc::ptr_eq(
+            &reader.tpool.as_ref().unwrap().handle,
+            &first_pool.handle
+        ));
+        assert_eq!(reader.set_threads(1), Err(Error::SetThreads));
+    }
+
+    #[test]
+    fn header_view_shared_reads_use_preinitialized_htslib_state() {
+        assert_send_sync::<HeaderView>();
+
+        let mut header = HeaderView::from_bytes(b"@SQ\tSN:chr1\tLN:10\n");
+        let added_lines = b"@SQ\tSN:chr2\tLN:20\n@PG\tID:tool\tPN:tool\n";
+        let raw_header = header.inner_ptr_mut();
+        assert_eq!(
+            unsafe {
+                htslib::sam_hdr_add_lines(
+                    raw_header,
+                    added_lines.as_ptr().cast::<c_char>(),
+                    added_lines.len(),
+                )
+            },
+            0
+        );
+        assert!(unsafe { (*raw_header).text.is_null() });
+
+        let header = Arc::new(header);
+        let initialized_hrecs = header.inner().hrecs;
+        let initialized_text = header.inner().text;
+        assert!(!initialized_hrecs.is_null());
+        assert!(!initialized_text.is_null());
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                let header = Arc::clone(&header);
+                scope.spawn(move || {
+                    for _ in 0..100 {
+                        assert_eq!(header.tid(b"chr1"), Some(0));
+                        assert_eq!(header.tid(b"chr2"), Some(1));
+                        assert!(header
+                            .as_bytes()
+                            .windows(b"@PG\tID:tool\tPN:tool\n".len())
+                            .any(|line| line == b"@PG\tID:tool\tPN:tool\n"));
+                    }
+                });
+            }
+        });
+        assert_eq!(header.inner().hrecs, initialized_hrecs);
+        assert_eq!(header.inner().text, initialized_text);
+
+        let mut header = Arc::try_unwrap(header).unwrap();
+        let second_edit = b"@CO\tsecond edit\n";
+        let raw_header = header.inner_ptr_mut();
+        assert_eq!(
+            unsafe {
+                htslib::sam_hdr_add_lines(
+                    raw_header,
+                    second_edit.as_ptr().cast::<c_char>(),
+                    second_edit.len(),
+                )
+            },
+            0
+        );
+        assert!(unsafe { (*raw_header).text.is_null() });
+
+        let header = Arc::new(header);
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                let header = Arc::clone(&header);
+                scope.spawn(move || {
+                    assert!(header
+                        .as_bytes()
+                        .windows(b"@CO\tsecond edit\n".len())
+                        .any(|line| line == b"@CO\tsecond edit\n"));
+                });
+            }
+        });
+    }
 
     fn reference_header(view: &HeaderView) -> Header {
         let mut header = Header::new();
