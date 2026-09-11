@@ -236,6 +236,11 @@ impl Record {
     pub fn set(&mut self, qname: &[u8], cigar: Option<&CigarString>, seq: &[u8], qual: &[u8]) {
         assert!(qname.len() < 255);
         assert_eq!(seq.len(), qual.len(), "seq.len() must equal qual.len()");
+        if let Some(cigar_string) = cigar {
+            for cigar_op in cigar_string {
+                cigar_op.assert_valid_len();
+            }
+        }
 
         self.cigar = None;
 
@@ -1427,7 +1432,10 @@ pub enum Cigar {
 }
 
 impl Cigar {
+    const MAX_LEN: u32 = 0x0fff_ffff;
+
     fn encode(self) -> u32 {
+        self.assert_valid_len();
         match self {
             Cigar::Match(len) => len << 4, // | 0,
             Cigar::Ins(len) => (len << 4) | 1,
@@ -1439,6 +1447,13 @@ impl Cigar {
             Cigar::Equal(len) => (len << 4) | 7,
             Cigar::Diff(len) => (len << 4) | 8,
         }
+    }
+
+    fn assert_valid_len(self) {
+        assert!(
+            self.len() <= Self::MAX_LEN,
+            "CIGAR operation length must fit in 28 bits"
+        );
     }
 
     /// Return the length of the CIGAR.
@@ -1771,5 +1786,51 @@ mod tests {
 
         assert!(record.cigar_cached().is_none());
         assert_eq!(record.cigar().end_pos(), 101);
+    }
+
+    #[test]
+    fn cigar_lengths_must_fit_in_bam_encoding() {
+        let valid_cigars = [
+            Cigar::Match(Cigar::MAX_LEN),
+            Cigar::Ins(Cigar::MAX_LEN),
+            Cigar::Del(Cigar::MAX_LEN),
+            Cigar::RefSkip(Cigar::MAX_LEN),
+            Cigar::SoftClip(Cigar::MAX_LEN),
+            Cigar::HardClip(Cigar::MAX_LEN),
+            Cigar::Pad(Cigar::MAX_LEN),
+            Cigar::Equal(Cigar::MAX_LEN),
+            Cigar::Diff(Cigar::MAX_LEN),
+        ];
+        for cigar in valid_cigars {
+            assert_eq!(cigar.encode() >> 4, Cigar::MAX_LEN);
+        }
+        assert!(std::panic::catch_unwind(|| Cigar::Match(Cigar::MAX_LEN + 1).encode()).is_err());
+
+        let mut record = Record::new();
+        let cigar = CigarString(vec![Cigar::Match(Cigar::MAX_LEN)]);
+        record.set(b"max", Some(&cigar), b"A", &[30]);
+        assert_eq!(record.raw_cigar(), &[0xffff_fff0]);
+    }
+
+    #[test]
+    fn set_rejects_unencodable_cigar_before_mutating_record() {
+        let mut record = Record::new();
+        let valid_cigar = CigarString(vec![Cigar::Match(1)]);
+        record.set(b"original", Some(&valid_cigar), b"A", &[30]);
+        record.cache_cigar();
+        let raw_cigar = record.raw_cigar().to_vec();
+
+        let invalid_cigar = CigarString(vec![Cigar::Match(1), Cigar::Del(Cigar::MAX_LEN + 1)]);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            record.set(b"replacement", Some(&invalid_cigar), b"C", &[20]);
+        }))
+        .is_err());
+
+        assert_eq!(record.qname(), b"original");
+        assert_eq!(record.raw_cigar(), raw_cigar);
+        assert_eq!(record.cigar()[0], Cigar::Match(1));
+        assert!(record.cigar_cached().is_some());
+        assert_eq!(record.seq().as_bytes(), b"A");
+        assert_eq!(record.qual(), &[30]);
     }
 }
