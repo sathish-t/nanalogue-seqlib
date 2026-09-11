@@ -1,57 +1,71 @@
-[![Crates.io](https://img.shields.io/crates/d/rust-htslib.svg)](https://crates.io/crates/rust-htslib)
-[![Crates.io](https://img.shields.io/crates/v/rust-htslib.svg)](https://crates.io/crates/rust-htslib)
-[![Crates.io](https://img.shields.io/crates/l/rust-htslib.svg)](https://crates.io/crates/rust-htslib)
-[![docs.rs](https://docs.rs/rust-htslib/badge.svg)](https://docs.rs/rust-htslib)
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/rust-bio/rust-htslib/rust.yml?branch=master&label=tests)
-[![Coverage Status](https://coveralls.io/repos/github/rust-bio/rust-htslib/badge.svg?branch=master)](https://coveralls.io/github/rust-bio/rust-htslib?branch=master)
+[![CI](https://github.com/sathish-t/nanalogue-seqlib/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/sathish-t/nanalogue-seqlib/actions/workflows/rust.yml)
 
-# HTSlib bindings for Rust
+# nanalogue-seqlib
 
-This library provides HTSlib bindings and a high level Rust API for reading and writing BAM files.
+An experimental fork of [rust-bio/rust-htslib](https://github.com/rust-bio/rust-htslib), providing HTSlib bindings and a high-level Rust API for SAM/BAM/CRAM files. The main goal is to evaluate whether this fork can replace upstream `rust-htslib` in [Nanalogue](https://github.com/DNAReplicationLab/nanalogue).
 
-To clone this repository, issue
+The Cargo package and Rust import names remain `rust-htslib` and `rust_htslib`. This is not a claim of complete upstream API compatibility: the fork has a reduced API and safety-related changes. A crates.io dependency on `rust-htslib` still selects upstream, not this repository.
+
+Clone the fork:
 
 ```shell
-$ git clone --recursive https://github.com/rust-bio/rust-htslib.git
+git clone https://github.com/sathish-t/nanalogue-seqlib.git
 ```
-
-ensuring that the HTSlib submodule is fetched, too.
-If you only want to use the library, there is no need to clone the repository. Go on to the **Usage** section in this case.
 
 ## Requirements
 
-rust-htslib comes with pre-built bindings to htslib for Mac and Linux. You will need a C toolchain compatible with the `cc` crate. The build script for this crate will automatically build a link htslib.
+Install Rust, a C toolchain compatible with the `cc` crate, Clang/libclang for bindgen, and CMake for feature combinations that build compression dependencies from source. The `hts-sys` dependency builds HTSlib; this repository does not require an HTSlib submodule.
 
-## Usage
+**Bindgen is mandatory in this fork**, including with `--no-default-features`. The `bindgen` Cargo feature remains as a compatibility alias, not an opt-in switch. Pre-built upstream bindings do not replace this build requirement.
 
-Add this to your `Cargo.toml`:
-```toml
-[dependencies]
-rust-htslib = "*"
-```
+## Evaluate with Nanalogue
 
-By default `rust-htslib` links to `bzip2-sys` and `lzma-sys` for full CRAM support. If you do not need CRAM support, or you do need to support CRAM files
-with these compression methods, you can deactivate these features to reduce you dependency count:
+For sibling checkouts named `nanalogue` and `nanalogue-seqlib`, replace Nanalogue's existing `rust-htslib` dependency in its local `Cargo.toml` with:
 
 ```toml
 [dependencies]
-rust-htslib = { version = "*", default-features = false }
+rust-htslib = { path = "../nanalogue-seqlib", features = ["libdeflate"] }
 ```
 
-Http access to files is available with the `curl` feature.
+Use the path to the checkout containing the changes you want to evaluate. A `[patch.crates-io]` entry alone will not override an exact `=1.0.0` dependency with this fork's `1.0.2`; replacing the dependency avoids that version mismatch.
 
-Beta-level S3 and Google Cloud Storge support is available with the `s3` and `gcs` features.
+From the Nanalogue checkout, verify resolution and compatibility:
 
-`rust-htslib` can optionally use `bindgen` to generate bindings to htslib. This can slow down the build substantially. Enabling the `bindgen` feature will 
-cause `hts-sys` to use a create a binding file for your architecture. Pre-built bindings are supplied for Mac and Linux. The `bindgen` feature on Windows is untested - please file a bug if you need help.
+```shell
+cargo tree -i rust-htslib
+cargo test --all-features
+```
 
-For more information, please see the [docs](https://docs.rs/rust-htslib).
+The tree must show your local fork path. Keep the downstream manifest and lockfile changes local while evaluating. Passing these tests is evidence for that pair of revisions, not a guarantee of compatibility with all upstream users or future Nanalogue versions.
+
+## Features and development
+
+Default features enable bzip2, lzma, and HTTP access through curl. If you do not need these capabilities, disable default features (bindgen still runs):
+
+```toml
+[dependencies]
+rust-htslib = { path = "../nanalogue-seqlib", default-features = false }
+```
+
+The `s3` and `gcs` features enable the corresponding HTSlib remote-storage support; `libdeflate` enables libdeflate compression support.
+
+Run the fork's checks and generate API documentation locally:
+
+```shell
+cargo fmt -- --check
+cargo clippy --all-features --all-targets -- -D warnings
+cargo test --all-features
+cargo test --no-default-features
+cargo doc --all-features --no-deps
+```
+
+CI is configured for native Linux x86_64/ARM64 feature tests and macOS Intel/Apple Silicon all-feature tests. It does not currently exercise MUSL. [Upstream API documentation](https://docs.rs/rust-htslib) is useful background but may differ from this fork; use locally generated documentation for its current API.
 
 # Alternatives
 
 There's [noodles](https://github.com/zaeleus/noodles) by [Michael Macias](https://github.com/zaeleus) which implements a large part of htslib's C functionality in pure Rust (still experimental though).
 
-# Authors
+# Upstream authors
 
 * [Johannes Köster](https://github.com/johanneskoester)
 * [Christopher Schröder](https://github.com/christopher-schroeder)

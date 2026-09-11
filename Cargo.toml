@@ -1,14 +1,13 @@
 [package]
 authors = ["Christopher Schröder <christopher.schroeder@tu-dortmund.de>", "Johannes Köster <johannes.koester@tu-dortmund.de>"]
-description = "This library provides HTSlib bindings and a high level Rust API for reading and writing BAM files."
-documentation = "https://docs.rs/rust-htslib"
+description = "Experimental rust-htslib fork for evaluating SAM/BAM/CRAM support in Nanalogue."
 edition = "2018"
 include = ["src/**/*", "LICENSE.md", "README.md", "CHANGELOG.md"]
 keywords = ["htslib", "bam", "bioinformatics", "sequencing"]
 license = "MIT"
 name = "rust-htslib"
 readme = "README.md"
-repository = "https://github.com/rust-bio/rust-htslib.git"
+repository = "https://github.com/sathish-t/nanalogue-seqlib.git"
 version = "1.0.2"
 
 [package.metadata.release]
@@ -26,6 +25,7 @@ thiserror = {version = "^2" }
 url = "2.5"
 
 [features]
+# Compatibility alias: hts-sys always enables bindgen in this fork.
 bindgen = ["hts-sys/bindgen"]
 bzip2 = ["hts-sys/bzip2"]
 curl = ["hts-sys/curl"]
