@@ -783,6 +783,24 @@ impl Record {
         self.push_aux_unchecked(tag, value)
     }
 
+    unsafe fn push_aux_array<T>(
+        &mut self,
+        tag: *mut c_char,
+        type_code: u8,
+        array: AuxArray<'_, T>,
+    ) -> i32
+    where
+        T: AuxArrayElement,
+    {
+        let len = array.len() as u32;
+        let data = match array {
+            AuxArray::TargetType(inner) => inner.slice.as_ptr() as *mut ::libc::c_void,
+            AuxArray::RawLeBytes(inner) => inner.slice.as_ptr() as *mut ::libc::c_void,
+        };
+
+        htslib::bam_aux_update_array(self.inner_ptr_mut(), tag, type_code, len, data)
+    }
+
     /// Add auxiliary data, without checking if the tag is present.
     ///
     /// The caller should ensure that the same tag is not pushed more than once.
@@ -875,119 +893,13 @@ impl Record {
                         c_str.as_ptr() as *mut u8,
                     )
                 }
-                // Not sure it's safe to cast an immutable slice to a mutable pointer in the following branches
-                Aux::ArrayI8(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'c',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'c',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayU8(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'C',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'C',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayI16(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b's',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b's',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayU16(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'S',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'S',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayI32(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'i',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'i',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayU32(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'I',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'I',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
-                Aux::ArrayFloat(aux_array) => match aux_array {
-                    AuxArray::TargetType(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'f',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                    AuxArray::RawLeBytes(inner) => htslib::bam_aux_update_array(
-                        self.inner_ptr_mut(),
-                        ctag,
-                        b'f',
-                        inner.len() as u32,
-                        inner.slice.as_ptr() as *mut ::libc::c_void,
-                    ),
-                },
+                Aux::ArrayI8(aux_array) => self.push_aux_array(ctag, b'c', aux_array),
+                Aux::ArrayU8(aux_array) => self.push_aux_array(ctag, b'C', aux_array),
+                Aux::ArrayI16(aux_array) => self.push_aux_array(ctag, b's', aux_array),
+                Aux::ArrayU16(aux_array) => self.push_aux_array(ctag, b'S', aux_array),
+                Aux::ArrayI32(aux_array) => self.push_aux_array(ctag, b'i', aux_array),
+                Aux::ArrayU32(aux_array) => self.push_aux_array(ctag, b'I', aux_array),
+                Aux::ArrayFloat(aux_array) => self.push_aux_array(ctag, b'f', aux_array),
             }
         };
 
@@ -1679,6 +1591,49 @@ mod tests {
             };
             assert_eq!(array_len, 0);
         }
+    }
+
+    #[test]
+    fn push_aux_preserves_all_array_values_for_target_and_raw_representations() {
+        macro_rules! assert_array_round_trip {
+            ($variant:ident, $values:expr, $tag:expr) => {{
+                let values = $values;
+                let mut source = Record::new();
+                source.set(b"source", None, b"A", b"I");
+                source
+                    .push_aux($tag, Aux::$variant((&values[..]).into()))
+                    .unwrap();
+
+                assert!(matches!(
+                    source.aux($tag),
+                    Ok(Aux::$variant(array)) if array
+                        .iter()
+                        .map(|value| value.to_le_bytes())
+                        .eq(values.iter().map(|value| value.to_le_bytes()))
+                ));
+
+                let raw_array = source.aux($tag).unwrap();
+                let mut destination = Record::new();
+                destination.set(b"destination", None, b"A", b"I");
+                destination.push_aux(b"RT", raw_array).unwrap();
+
+                assert!(matches!(
+                    destination.aux(b"RT"),
+                    Ok(Aux::$variant(array)) if array
+                        .iter()
+                        .map(|value| value.to_le_bytes())
+                        .eq(values.iter().map(|value| value.to_le_bytes()))
+                ));
+            }};
+        }
+
+        assert_array_round_trip!(ArrayI8, [-128_i8, -1, 0, 127], b"A1");
+        assert_array_round_trip!(ArrayU8, [0_u8, 1, 127, 255], b"A2");
+        assert_array_round_trip!(ArrayI16, [-32768_i16, -1, 0, 32767], b"A3");
+        assert_array_round_trip!(ArrayU16, [0_u16, 1, 32768, 65535], b"A4");
+        assert_array_round_trip!(ArrayI32, [-1_000_000_i32, -1, 0, 1_000_000], b"A5");
+        assert_array_round_trip!(ArrayU32, [0_u32, 1, 1_000_000, u32::MAX], b"A6");
+        assert_array_round_trip!(ArrayFloat, [-1.5_f32, -0.0, 0.25, 1000.5], b"A7");
     }
 
     #[test]
