@@ -84,10 +84,9 @@ impl Iterator for IterAlignedPairsFull {
                     self.cigar_index += 1;
                     return Some([None, Some(self.genome_pos - 1)]);
                 }
-                Cigar::HardClip(_) => {
-                    // no advance
+                Cigar::HardClip(_) | Cigar::Pad(_) => {
+                    // SAM CIGAR H and P consume neither query nor reference.
                 }
-                Cigar::Pad(_) => panic!("Padding (Cigar::Pad) is not supported."), //padding is only used for multiple sequence alignment
             }
             self.cigar_index += 1;
         }
@@ -102,7 +101,8 @@ pub trait BamRecordExtensions {
     /// iter list of read and reference positions on a basepair level.
     ///
     /// Returns None in either the read position or the reference position
-    /// for insertions, deletions or skipped pairs
+    /// for insertions, deletions or skipped pairs. Hard clips and padding consume
+    /// neither coordinate and therefore produce no pair.
     ///
     /// pysam: aligned_pairs(matches_only = False)
     fn aligned_pairs_full(&self) -> IterAlignedPairsFull;
@@ -135,7 +135,21 @@ impl BamRecordExtensions for bam::Record {
 mod tests {
     use crate::bam;
     use crate::bam::ext::BamRecordExtensions;
+    use crate::bam::record::{Cigar, CigarString};
     use crate::bam::Read;
+
+    #[test]
+    fn test_aligned_pairs_full_ignores_padding() {
+        let cigar = CigarString(vec![Cigar::Match(1), Cigar::Pad(2), Cigar::Match(1)]);
+        let mut record = bam::Record::new();
+        record.set(b"padded", Some(&cigar), b"AC", &[30, 30]);
+        record.set_pos(100);
+
+        assert_eq!(
+            record.aligned_pairs_full().collect::<Vec<_>>(),
+            vec![[Some(0), Some(100)], [Some(1), Some(101)]]
+        );
+    }
 
     #[test]
     fn test_aligned_pairs_full() {
