@@ -661,7 +661,12 @@ impl Record {
                     .ok_or(Error::BamAuxParsingError)?;
                 let rust_str = str::from_utf8(&string_data[..nul_offset])
                     .map_err(|_| Error::BamAuxParsingError)?;
-                (Aux::String(rust_str), nul_offset + 1)
+                let value = if type_id == b'H' {
+                    Aux::HexByteArray(rust_str)
+                } else {
+                    Aux::String(rust_str)
+                };
+                (value, nul_offset + 1)
             }
             b'B' => {
                 let array_data_offset = TYPE_ID_LEN + ARRAY_INNER_TYPE_LEN + ARRAY_COUNT_LEN;

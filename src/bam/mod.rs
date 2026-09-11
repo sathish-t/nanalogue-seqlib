@@ -1947,6 +1947,16 @@ CCCCCCCCCCCCCCCCCCC"[..],
     }
 
     #[test]
+    fn test_aux_string_and_hex_byte_array_roundtrip() {
+        let mut rec = Record::new();
+        rec.push_aux(b"ZS", Aux::String("plain text")).unwrap();
+        rec.push_aux(b"HX", Aux::HexByteArray("DEADBEEF")).unwrap();
+
+        assert_eq!(rec.aux(b"ZS").unwrap(), Aux::String("plain text"));
+        assert_eq!(rec.aux(b"HX").unwrap(), Aux::HexByteArray("DEADBEEF"));
+    }
+
+    #[test]
     fn test_set_repeated() {
         let mut rec = Record::new();
         rec.set(
