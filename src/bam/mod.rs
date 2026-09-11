@@ -29,7 +29,6 @@ pub use crate::bam::header::Header;
 pub use crate::bam::record::Record;
 use hts_sys::{hts_fmt_option, sam_fields};
 use std::convert::{TryFrom, TryInto};
-use std::mem::MaybeUninit;
 
 /// # Safety
 ///
@@ -287,6 +286,7 @@ impl Reader {
 
         let header = unsafe { htslib::sam_hdr_read(htsfile) };
         if header.is_null() {
+            unsafe { htslib::hts_close(htsfile) };
             return Err(Error::BamOpen {
                 target: String::from_utf8_lossy(path).to_string(),
             });
@@ -605,9 +605,19 @@ impl IndexedReader {
     fn new(path: &[u8]) -> Result<Self> {
         let htsfile = hts_open(path, b"r")?;
         let header = unsafe { htslib::sam_hdr_read(htsfile) };
+        if header.is_null() {
+            unsafe { htslib::hts_close(htsfile) };
+            return Err(Error::BamOpen {
+                target: String::from_utf8_lossy(path).to_string(),
+            });
+        }
         let c_str = ffi::CString::new(path).unwrap();
         let idx = unsafe { htslib::sam_index_load(htsfile, c_str.as_ptr()) };
         if idx.is_null() {
+            unsafe {
+                htslib::sam_hdr_destroy(header);
+                htslib::hts_close(htsfile);
+            }
             Err(Error::BamInvalidIndex {
                 target: str::from_utf8(path).unwrap().to_owned(),
             })
@@ -630,12 +640,22 @@ impl IndexedReader {
     fn new_with_index_path(path: &[u8], index_path: &[u8]) -> Result<Self> {
         let htsfile = hts_open(path, b"r")?;
         let header = unsafe { htslib::sam_hdr_read(htsfile) };
+        if header.is_null() {
+            unsafe { htslib::hts_close(htsfile) };
+            return Err(Error::BamOpen {
+                target: String::from_utf8_lossy(path).to_string(),
+            });
+        }
         let c_str_path = ffi::CString::new(path).unwrap();
         let c_str_index_path = ffi::CString::new(index_path).unwrap();
         let idx = unsafe {
             htslib::sam_index_load2(htsfile, c_str_path.as_ptr(), c_str_index_path.as_ptr())
         };
         if idx.is_null() {
+            unsafe {
+                htslib::sam_hdr_destroy(header);
+                htslib::hts_close(htsfile);
+            }
             Err(Error::BamInvalidIndex {
                 target: str::from_utf8(path).unwrap().to_owned(),
             })
@@ -793,8 +813,8 @@ impl IndexedReader {
             return Ok(vec![]);
         }
         let mut counts = vec![vec![0; 2]; nref + 1];
-        let mut bb: hts_sys::bam1_t = MaybeUninit::zeroed().assume_init();
-        let b = &mut bb as *mut hts_sys::bam1_t;
+        let mut record = record::Record::new();
+        let b = record.inner_ptr_mut();
         loop {
             ret = hts_sys::sam_read1(fp, h, b);
             if ret < 0 {
@@ -1264,6 +1284,7 @@ fn hts_open(path: &[u8], mode: &[u8]) -> Result<*mut htslib::htsFile> {
                     && (*ret).format.format != htslib::htsExactFormat_bam
                     && (*ret).format.format != htslib::htsExactFormat_cram
                 {
+                    htslib::hts_close(ret);
                     return Err(Error::BamOpen {
                         target: path.to_owned(),
                     });
