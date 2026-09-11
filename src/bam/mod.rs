@@ -212,7 +212,7 @@ pub trait Read: Sized {
     /// * `tpool` - thread pool to use for compression work.
     fn set_thread_pool(&mut self, tpool: &ThreadPool) -> Result<()>;
 
-    /// If the underlying file is in CRAM format, allows modifying CRAM options.
+    /// If the underlying file is in CRAM format, sets the fields that htslib must decode.
     /// Note that this method does *not* check that the underlying file actually is in CRAM format.
     ///
     /// # Examples
@@ -227,7 +227,16 @@ pub trait Read: Sized {
     /// cram.set_cram_options(hts_sys::hts_fmt_option_CRAM_OPT_REQUIRED_FIELDS,
     ///             hts_sys::sam_fields_SAM_RNAME | hts_sys::sam_fields_SAM_FLAG).unwrap();
     /// ```
+    ///
+    /// Only `CRAM_OPT_REQUIRED_FIELDS`, whose value is a `sam_fields` bitset,
+    /// is supported. Every other option returns [`Error::HtsSetOpt`] without
+    /// calling htslib. Some options require pointer-valued C varargs, which
+    /// this method cannot safely supply.
     fn set_cram_options(&mut self, fmt_opt: hts_fmt_option, fields: sam_fields) -> Result<()> {
+        if fmt_opt != hts_sys::hts_fmt_option_CRAM_OPT_REQUIRED_FIELDS {
+            return Err(Error::HtsSetOpt);
+        }
+
         unsafe {
             if hts_sys::hts_set_opt(self.htsfile(), fmt_opt, fields) != 0 {
                 Err(Error::HtsSetOpt)
@@ -1450,6 +1459,7 @@ mod tests {
     use std::collections::HashMap;
     use std::fs;
     use std::path::Path;
+    use std::process::Command;
     use std::str;
 
     fn reference_header(view: &HeaderView) -> Header {
@@ -2169,6 +2179,39 @@ CCCCCCCCCCCCCCCCCCC"[..],
         let bam_records: Vec<Record> = bam_reader.records().map(|v| v.unwrap()).collect();
 
         compare_inner_bam_cram_records(&cram_records, &bam_records);
+    }
+
+    #[test]
+    fn test_set_cram_options_rejects_non_field_options_without_crashing() {
+        const CHILD_ENV: &str = "RUST_HTSLIB_CRAM_OPTIONS_CHILD";
+        const CHILD_SUCCESS: &str = "set_cram_options child succeeded";
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let mut reader = Reader::from_path("test/test_cram.cram").unwrap();
+            assert_eq!(
+                reader.set_cram_options(hts_sys::hts_fmt_option_CRAM_OPT_REFERENCE, 1),
+                Err(Error::HtsSetOpt)
+            );
+            println!("{}", CHILD_SUCCESS);
+            return;
+        }
+
+        let output = Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("bam::tests::test_set_cram_options_rejects_non_field_options_without_crashing")
+            .arg("--nocapture")
+            .env(CHILD_ENV, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "child process crashed or failed: {}",
+            output.status
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains(CHILD_SUCCESS),
+            "child process did not execute the regression assertion"
+        );
     }
 
     #[test]
