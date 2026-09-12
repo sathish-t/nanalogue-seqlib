@@ -91,7 +91,7 @@ jobs:
     needs: Formatting
     strategy:
       matrix:
-        # Native Linux builds; these jobs do not test MUSL.
+        # Native GNU/Linux builds; MUSL is tested separately below.
         os: [ubuntu-22.04, ubuntu-22.04-arm]
         args: [--no-default-features, --all-features]
     runs-on: ${{ matrix.os }}
@@ -119,6 +119,62 @@ jobs:
           FEATURE_ARGS: ${{ matrix.args }}
         run: |
           cargo test "$FEATURE_ARGS"
+
+  Testing-MUSL:
+    name: MUSL tests (${{ matrix.rust_target }}, ${{ matrix.args }})
+    needs: Formatting
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm]
+        args: [--no-default-features, --all-features]
+        include:
+          - os: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-musl
+          - os: ubuntu-22.04-arm
+            rust_target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
+    env:
+      # Also target MUSL in the compile-fail tests' nested Cargo invocations.
+      CARGO_BUILD_TARGET: ${{ matrix.rust_target }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install MUSL build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential musl-tools musl-dev \
+            clang libclang-dev cmake perl pkg-config
+
+      - name: Configure native MUSL toolchain
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          test "$(uname -m)" = "${RUST_TARGET%%-*}"
+          rustup toolchain install stable --profile minimal --target "$RUST_TARGET"
+          rustup default stable
+          target_env="${RUST_TARGET//-/_}"
+          # Compile C dependencies with MUSL headers and libraries. Rust supplies
+          # its own MUSL CRT to the native GCC linker; do not use musl-gcc there.
+          {
+            printf 'CC_%s=musl-gcc\n' "$target_env"
+            printf 'CARGO_TARGET_%s_LINKER=gcc\n' "${target_env^^}"
+            printf 'BINDGEN_EXTRA_CLANG_ARGS_%s=--target=%s -I/usr/include/%s-linux-musl\n' \
+              "$target_env" "$RUST_TARGET" "${RUST_TARGET%%-*}"
+          } >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: musl-${{ matrix.rust_target }}-${{ matrix.args }}
+
+      - name: Run MUSL tests
+        env:
+          FEATURE_ARGS: ${{ matrix.args }}
+        run: cargo test --target "$CARGO_BUILD_TARGET" "$FEATURE_ARGS"
 
   Testing-MacOS:
     name: macOS tests (${{ matrix.toolchain_target }})
