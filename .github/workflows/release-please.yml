@@ -5,16 +5,27 @@ on:
 
 name: release-please
 
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release-please:
+    name: Prepare and publish upstream release
     if: github.repository_owner == 'rust-bio'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Create upstream release tags and GitHub releases.
+      pull-requests: write # Open and update release-please PRs.
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           submodules: recursive
+          persist-credentials: false
 
-      - uses: GoogleCloudPlatform/release-please-action@v4
+      - uses: GoogleCloudPlatform/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         id: release_main
         with:
           release-type: rust
@@ -22,22 +33,26 @@ jobs:
           bump-minor-pre-major: true
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
         if: ${{ steps.release_main.outputs.release_created }}
-        with:
-          toolchain: stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Install system dependencies
         if: ${{ steps.release_main.outputs.release_created }}
         run: |
           sudo apt-get install --yes zlib1g-dev libbz2-dev musl musl-dev musl-tools clang libc6-dev
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         if: ${{ steps.release_main.outputs.release_created }}
 
       - name: Publish rust-htslib
         if: ${{ steps.release_main.outputs.release_created }}
-        run: cargo publish --token ${{ secrets.CRATES_IO_TOKEN }}
+        # Publishing remains disabled for this fork by the job's owner guard.
+        # Trusted publishing requires separate registry-side configuration.
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+        run: cargo publish
 
       # - uses: katyo/publish-crates@v1
       #   if: ${{ steps.release_main.outputs.release_created || steps.release_sys.outputs.release_created }}

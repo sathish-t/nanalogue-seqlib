@@ -6,40 +6,51 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   Formatting:
+    name: Formatting
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: rustfmt
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
 
       - name: Check format
         run: cargo fmt -- --check
 
   Linting:
+    name: Linting
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: clippy
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
 
       - name: Lint with clippy
         run: RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -Dclippy::all -Dunused_imports
 
   Testing:
+    name: Coverage (${{ matrix.os }})
     needs: Formatting
     strategy:
       matrix:
@@ -47,20 +58,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: nightly
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
 
       - name: Install system dependencies
         run: |
           sudo apt-get install --yes zlib1g-dev libbz2-dev clang libc6-dev
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Run cargo-tarpaulin
         run: |
@@ -69,12 +81,13 @@ jobs:
           cargo tarpaulin --all-features --tests --doc --out Lcov -- --test-threads 1
 
       - name: Upload coverage
-        uses: coverallsapp/github-action@v2
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-lcov: ./lcov.info
 
   Testing-Features:
+    name: Feature tests (${{ matrix.os }}, ${{ matrix.args }})
     needs: Formatting
     strategy:
       matrix:
@@ -85,26 +98,30 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Install system dependencies
         run: |
           sudo apt-get install --yes zlib1g-dev libbz2-dev clang libc6-dev
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Test
+        env:
+          FEATURE_ARGS: ${{ matrix.args }}
         run: |
-          cargo test ${{ matrix.args }}
+          cargo test "$FEATURE_ARGS"
 
   Testing-MacOS:
+    name: macOS tests (${{ matrix.toolchain_target }})
     needs: Formatting
     runs-on: ${{ matrix.os }}
     strategy:
@@ -117,19 +134,23 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.toolchain_target }}
+        env:
+          RUST_TARGET: ${{ matrix.toolchain_target }}
+        run: |
+          rustup toolchain install stable --profile minimal --target "$RUST_TARGET"
+          rustup default stable
 
       - name: Install htslib dependencies
         run: brew install bzip2 zlib xz curl-openssl
 
       - name: Test
+        env:
+          RUST_TARGET: ${{ matrix.toolchain_target }}
         run: |
-          cargo test --release --all-features --verbose --target ${{ matrix.toolchain_target }}
+          cargo test --release --all-features --verbose --target "$RUST_TARGET"
