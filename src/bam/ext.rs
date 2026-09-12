@@ -86,6 +86,9 @@ impl Iterator for IterAlignedPairsFull {
                 }
                 Cigar::HardClip(_) | Cigar::Pad(_) => {
                     // SAM CIGAR H and P consume neither query nor reference.
+                    // We've not run into padded BAMs in our normal workflow.
+                    // We may have to deal with this in the future if we run
+                    // into one such file.
                 }
             }
             self.cigar_index += 1;
