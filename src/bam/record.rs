@@ -505,6 +505,33 @@ impl Record {
         Err(Error::BamAuxTagNotFound)
     }
 
+    /// Remove an auxiliary field.
+    ///
+    /// Only the first two bytes of `tag` are used. Returns [`Error::BamAuxStringError`] if
+    /// `tag` is shorter than two bytes, [`Error::BamAuxTagNotFound`] if the field is absent, or
+    /// [`Error::BamAux`] if HTSlib cannot remove the field.
+    pub fn remove_aux(&mut self, tag: &[u8]) -> Result<()> {
+        if tag.len() < 2 {
+            return Err(Error::BamAuxStringError);
+        }
+
+        let aux = unsafe { htslib::bam_aux_get(self.inner_ptr(), tag.as_ptr().cast()) };
+        if aux.is_null() {
+            return if std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT) {
+                Err(Error::BamAuxTagNotFound)
+            } else {
+                Err(Error::BamAux)
+            };
+        }
+
+        let ret = unsafe { htslib::bam_aux_del(self.inner_ptr_mut(), aux) };
+        if ret < 0 {
+            Err(Error::BamAux)
+        } else {
+            Ok(())
+        }
+    }
+
     fn aux_data(&self) -> Result<&[u8]> {
         let offset = self
             .qname_capacity()
@@ -918,7 +945,7 @@ impl Record {
     flag!(is_mate_reverse, 32u16);
     flag!(is_first_in_template, 64u16);
     flag!(is_last_in_template, 128u16);
-    flag!(is_secondary, 256u16);
+    flag!(is_secondary, set_secondary, unset_secondary, 256u16);
     flag!(is_quality_check_failed, 512u16);
     flag!(is_duplicate, 1024u16);
     flag!(is_supplementary, 2048u16);
@@ -1686,6 +1713,76 @@ mod tests {
             Ok(Aux::ArrayI16(array)) if array.iter().eq([2, 3])
         ));
         assert_eq!(record.aux(b"ZZ"), Err(Error::BamAuxTagNotFound));
+    }
+
+    #[test]
+    fn remove_aux_removes_only_the_requested_tag_and_allows_replacement() {
+        let mut record = Record::new();
+        record.set(b"read", None, b"A", b"I");
+        record.push_aux(b"AA", Aux::String("first")).unwrap();
+        record.push_aux(b"NM", Aux::I32(1)).unwrap();
+        record.push_aux(b"ZZ", Aux::String("last")).unwrap();
+
+        record.remove_aux(b"NM_extra").unwrap();
+
+        assert_eq!(record.aux(b"AA"), Ok(Aux::String("first")));
+        assert_eq!(record.aux(b"NM"), Err(Error::BamAuxTagNotFound));
+        assert_eq!(record.aux(b"ZZ"), Ok(Aux::String("last")));
+
+        record.push_aux(b"NM", Aux::I32(2)).unwrap();
+        assert_eq!(record.aux(b"NM"), Ok(Aux::I32(2)));
+    }
+
+    #[test]
+    fn remove_aux_rejects_invalid_or_absent_tags() {
+        let mut record = Record::new();
+
+        assert_eq!(record.remove_aux(b""), Err(Error::BamAuxStringError));
+        assert_eq!(record.remove_aux(b"N"), Err(Error::BamAuxStringError));
+        assert_eq!(record.remove_aux(b"NM"), Err(Error::BamAuxTagNotFound));
+    }
+
+    #[test]
+    fn remove_aux_removes_an_only_variable_length_field() {
+        let mut record = Record::new();
+        record.push_aux(b"ZS", Aux::String("value")).unwrap();
+
+        record.remove_aux(b"ZS").unwrap();
+
+        assert_eq!(record.aux(b"ZS"), Err(Error::BamAuxTagNotFound));
+    }
+
+    #[test]
+    fn remove_aux_reports_corrupt_data() {
+        let mut record = Record::new();
+        record.set(b"read", None, b"A", b"I");
+        record
+            .push_aux(b"XA", Aux::ArrayI8((&[1_i8][..]).into()))
+            .unwrap();
+        record.push_aux(b"ZZ", Aux::String("later")).unwrap();
+
+        let aux_offset = record.qname_capacity() + record.seq_len().div_ceil(2) + record.seq_len();
+        let data =
+            unsafe { slice::from_raw_parts_mut(record.inner.data, record.inner.l_data as usize) };
+        data[aux_offset + 4..aux_offset + 8].copy_from_slice(&u32::MAX.to_le_bytes());
+        let before = record.data().to_vec();
+
+        assert_eq!(record.remove_aux(b"ZZ"), Err(Error::BamAux));
+        assert_eq!(record.data(), before);
+    }
+
+    #[test]
+    fn secondary_flag_can_be_set_without_affecting_other_flags() {
+        let mut record = Record::new();
+        record.set_reverse();
+
+        record.set_secondary();
+        assert!(record.is_reverse());
+        assert!(record.is_secondary());
+
+        record.unset_secondary();
+        assert!(record.is_reverse());
+        assert!(!record.is_secondary());
     }
 
     #[test]
