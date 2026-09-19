@@ -33,6 +33,29 @@ fn main() {
     let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
     let mut cc = format!("{} cc -target {} -mcpu=baseline", quote(&zig), zig_target);
     if target.contains("apple") {
+        let deployment = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| {
+            let output = Command::new(env::var_os("RUSTC").unwrap())
+                .args(["--print", "deployment-target", "--target", &target])
+                .output()
+                .expect("query Rust's macOS deployment target");
+            assert!(
+                output.status.success(),
+                "rustc could not report its deployment target"
+            );
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .trim()
+                .strip_prefix("MACOSX_DEPLOYMENT_TARGET=")
+                .unwrap()
+                .to_owned()
+        });
+        // Keep Zig, CMake and Rust on the same minimum macOS version.
+        env::set_var("MACOSX_DEPLOYMENT_TARGET", &deployment);
+        cc = format!(
+            "{} cc -target {} -mcpu=baseline",
+            quote(&zig),
+            quote(&format!("{}.{}", zig_target, deployment))
+        );
         let sdk = env::var("SDKROOT").unwrap_or_else(|_| {
             let output = Command::new("xcrun")
                 .args(["--sdk", "macosx", "--show-sdk-path"])
@@ -91,10 +114,15 @@ fn main() {
             println!("cargo:rustc-link-lib=dl");
         }
     }
+    if target.contains("apple") && env::var_os("CARGO_FEATURE_CURL").is_some() {
+        println!("cargo:rustc-link-lib=framework=SystemConfiguration");
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
+    }
     println!("cargo:include={}/native/include", out.display());
     println!("cargo:root={}/native", out.display());
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=SDKROOT");
+    println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     for file in [
         "compression.rs",
         "network.rs",
