@@ -4549,34 +4549,6 @@ unsafe extern "C" {
     ) -> *mut ::std::os::raw::c_void;
 }
 unsafe extern "C" {
-    pub fn memcmp(
-        __s1: *const ::std::os::raw::c_void,
-        __s2: *const ::std::os::raw::c_void,
-        __n: ::std::os::raw::c_ulong,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn memcpy(
-        __dst: *mut ::std::os::raw::c_void,
-        __src: *const ::std::os::raw::c_void,
-        __n: ::std::os::raw::c_ulong,
-    ) -> *mut ::std::os::raw::c_void;
-}
-unsafe extern "C" {
-    pub fn memmove(
-        __dst: *mut ::std::os::raw::c_void,
-        __src: *const ::std::os::raw::c_void,
-        __len: ::std::os::raw::c_ulong,
-    ) -> *mut ::std::os::raw::c_void;
-}
-unsafe extern "C" {
-    pub fn memset(
-        __b: *mut ::std::os::raw::c_void,
-        __c: ::std::os::raw::c_int,
-        __len: ::std::os::raw::c_ulong,
-    ) -> *mut ::std::os::raw::c_void;
-}
-unsafe extern "C" {
     pub fn strcat(
         __s1: *mut ::std::os::raw::c_char,
         __s2: *const ::std::os::raw::c_char,
@@ -4614,9 +4586,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn strerror(__errnum: ::std::os::raw::c_int) -> *mut ::std::os::raw::c_char;
-}
-unsafe extern "C" {
-    pub fn strlen(__s: *const ::std::os::raw::c_char) -> ::std::os::raw::c_ulong;
 }
 unsafe extern "C" {
     pub fn strncat(
@@ -4820,13 +4789,6 @@ unsafe extern "C" {
         __sig: ::std::os::raw::c_int,
         __strsignalbuf: *mut ::std::os::raw::c_char,
         __buflen: usize,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn bcmp(
-        arg1: *const ::std::os::raw::c_void,
-        arg2: *const ::std::os::raw::c_void,
-        arg3: ::std::os::raw::c_ulong,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {

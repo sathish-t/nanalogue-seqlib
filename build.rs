@@ -31,13 +31,28 @@ fn main() {
     let compiler = out.join("zig-cc.sh");
     let archiver = out.join("zig-ar.sh");
     let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
-    for (path, command) in [
-        (
-            &compiler,
-            format!("{} cc -target {} -mcpu=baseline", quote(&zig), zig_target),
-        ),
-        (&archiver, format!("{} ar", quote(&zig))),
-    ] {
+    let mut cc = format!("{} cc -target {} -mcpu=baseline", quote(&zig), zig_target);
+    if target.contains("apple") {
+        let sdk = env::var("SDKROOT").unwrap_or_else(|_| {
+            let output = Command::new("xcrun")
+                .args(["--sdk", "macosx", "--show-sdk-path"])
+                .output()
+                .expect("install the Apple SDK or set SDKROOT for macOS targets");
+            assert!(
+                output.status.success(),
+                "xcrun could not locate the macOS SDK"
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        });
+        // Zig supplies libc headers, but CommonCrypto and frameworks live in the SDK.
+        cc.push_str(&format!(
+            " -isysroot {} -isystem {} -iframework {}",
+            quote(&sdk),
+            quote(&format!("{}/usr/include", sdk)),
+            quote(&format!("{}/System/Library/Frameworks", sdk))
+        ));
+    }
+    for (path, command) in [(&compiler, cc), (&archiver, format!("{} ar", quote(&zig)))] {
         fs::write(path, format!("#!/bin/sh\nexec {} \"$@\"\n", command)).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -67,14 +82,19 @@ fn main() {
         }
     }
     println!("cargo:rustc-link-lib=static=z");
-    println!("cargo:rustc-link-lib=m");
-    println!("cargo:rustc-link-lib=pthread");
-    if target.contains("linux") {
-        println!("cargo:rustc-link-lib=dl");
+    // musl includes these in libc, which Rust supplies. Asking a host GCC
+    // linker for -lm would accidentally select its glibc libm.a.
+    if !target.ends_with("musl") {
+        println!("cargo:rustc-link-lib=m");
+        println!("cargo:rustc-link-lib=pthread");
+        if target.contains("linux") {
+            println!("cargo:rustc-link-lib=dl");
+        }
     }
     println!("cargo:include={}/native/include", out.display());
     println!("cargo:root={}/native", out.display());
     println!("cargo:rerun-if-env-changed=ZIG");
+    println!("cargo:rerun-if-env-changed=SDKROOT");
     for file in [
         "compression.rs",
         "network.rs",

@@ -1614,34 +1614,6 @@ pub struct __locale_struct {
 }
 pub type locale_t = *mut __locale_struct;
 unsafe extern "C" {
-    pub fn memcpy(
-        arg1: *mut ::std::os::raw::c_void,
-        arg2: *const ::std::os::raw::c_void,
-        arg3: ::std::os::raw::c_ulong,
-    ) -> *mut ::std::os::raw::c_void;
-}
-unsafe extern "C" {
-    pub fn memmove(
-        arg1: *mut ::std::os::raw::c_void,
-        arg2: *const ::std::os::raw::c_void,
-        arg3: ::std::os::raw::c_ulong,
-    ) -> *mut ::std::os::raw::c_void;
-}
-unsafe extern "C" {
-    pub fn memset(
-        arg1: *mut ::std::os::raw::c_void,
-        arg2: ::std::os::raw::c_int,
-        arg3: ::std::os::raw::c_ulong,
-    ) -> *mut ::std::os::raw::c_void;
-}
-unsafe extern "C" {
-    pub fn memcmp(
-        arg1: *const ::std::os::raw::c_void,
-        arg2: *const ::std::os::raw::c_void,
-        arg3: ::std::os::raw::c_ulong,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
     pub fn memchr(
         arg1: *const ::std::os::raw::c_void,
         arg2: ::std::os::raw::c_int,
@@ -1743,17 +1715,7 @@ unsafe extern "C" {
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn strlen(arg1: *const ::std::os::raw::c_char) -> ::std::os::raw::c_ulong;
-}
-unsafe extern "C" {
     pub fn strerror(arg1: ::std::os::raw::c_int) -> *mut ::std::os::raw::c_char;
-}
-unsafe extern "C" {
-    pub fn bcmp(
-        arg1: *const ::std::os::raw::c_void,
-        arg2: *const ::std::os::raw::c_void,
-        arg3: ::std::os::raw::c_ulong,
-    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn bcopy(

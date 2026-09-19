@@ -36,6 +36,8 @@ fn main() {
         .clang_arg(format!("--target={target}"))
         .layout_tests(true)
         .generate_comments(false)
+        // Use Rust/libc for these runtime intrinsics, not expanded C typedefs.
+        .blocklist_function("memcpy|memmove|memset|memcmp|strlen|bcmp")
         .blocklist_function("strtold")
         .blocklist_type("max_align_t")
         .generate()
