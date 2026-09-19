@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, vendoring]
   pull_request:
     branches: [master]
 
@@ -46,6 +46,8 @@ jobs:
           rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
 
+      - uses: ./.github/actions/native-tools
+
       - name: Lint with clippy
         run: RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -Dclippy::all -Dunused_imports
 
@@ -69,8 +71,7 @@ jobs:
           rustup default nightly
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get install --yes zlib1g-dev libbz2-dev clang libc6-dev
+        uses: ./.github/actions/native-tools
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
@@ -109,8 +110,7 @@ jobs:
           rustup default stable
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get install --yes zlib1g-dev libbz2-dev clang libc6-dev
+        uses: ./.github/actions/native-tools
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
@@ -145,10 +145,7 @@ jobs:
           persist-credentials: false
 
       - name: Install MUSL build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential musl-tools musl-dev \
-            clang libclang-dev cmake perl pkg-config
+        uses: ./.github/actions/native-tools
 
       - name: Configure native MUSL toolchain
         env:
@@ -158,13 +155,10 @@ jobs:
           rustup toolchain install stable --profile minimal --target "$RUST_TARGET"
           rustup default stable
           target_env="${RUST_TARGET//-/_}"
-          # Compile C dependencies with MUSL headers and libraries. Rust supplies
-          # its own MUSL CRT to the native GCC linker; do not use musl-gcc there.
+          # build.rs compiles C with Zig's MUSL headers/libraries. Rust supplies
+          # its own MUSL CRT to the native GCC linker.
           {
-            printf 'CC_%s=musl-gcc\n' "$target_env"
             printf 'CARGO_TARGET_%s_LINKER=gcc\n' "${target_env^^}"
-            printf 'BINDGEN_EXTRA_CLANG_ARGS_%s=--target=%s -I/usr/include/%s-linux-musl\n' \
-              "$target_env" "$RUST_TARGET" "${RUST_TARGET%%-*}"
           } >> "$GITHUB_ENV"
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -203,7 +197,7 @@ jobs:
           rustup default stable
 
       - name: Install htslib dependencies
-        run: brew install bzip2 zlib xz curl-openssl
+        uses: ./.github/actions/native-tools
 
       - name: Test
         env:

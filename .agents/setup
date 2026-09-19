@@ -3,14 +3,12 @@
 #
 # Installs the toolchain and build prerequisites a fresh orb needs to build,
 # test, lint, and format this crate, then pre-compiles the heavy C/Rust
-# dependencies (hts-sys builds HTSlib from source) so later cargo invocations
+# dependencies (this crate builds vendored C sources) so later cargo invocations
 # are fast. Designed to be idempotent: a warm run skips every install and only
 # re-checks that the cache is in place.
 #
-# The orb base image already provides: build-essential, pkg-config, cc/gcc,
-# zlib1g-dev, libbz2-dev, liblzma-dev, libcurl4-openssl-dev, libc6-dev.
-# This script adds only what is missing: clang (for the hts-sys `bindgen`
-# feature) and the Rust stable toolchain with rustfmt + clippy.
+# Native libraries are copied into vendor/. Consumer builds need Zig, CMake,
+# Make and Perl, but neither native development packages nor libclang.
 set -euo pipefail
 
 step() { printf '\n\033[1m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*"; }
@@ -22,18 +20,9 @@ step() { printf '\n\033[1m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*"; }
 # shellcheck disable=SC1091
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
-# --- System packages (clang + cmake for bindgen / from-source zlib) ---------
-# clang  — required by the hts-sys `bindgen` feature (enabled unconditionally
-#          via hts-sys/features in Cargo.toml).
-# cmake  — required when libz-sys builds zlib from source. With --all-features
-#          libz-sys gets the `static` + `zlib-ng` features (via hts-sys/static
-#          and curl-sys/static-ssl), which drives a from-source zlib build
-#          through the `cmake` Rust crate -> the cmake binary. On a warm cache
-#          libz-sys may reuse the system zlib (zlib1g-dev) and skip cmake, but
-#          a clean or fully-static build invokes it and fails without the
-#          binary installed.
+# --- Upstream curl/OpenSSL build tools -----------------------------------
 need_apt=()
-for pkg in clang cmake; do
+for pkg in cmake make perl; do
     if ! dpkg -s "$pkg" >/dev/null 2>&1; then
         need_apt+=("$pkg")
     fi
@@ -43,7 +32,15 @@ if [ "${#need_apt[@]}" -gt 0 ]; then
     sudo apt-get update -y
     sudo apt-get install -y --no-install-recommends "${need_apt[@]}"
 else
-    step "apt packages already installed (clang present)"
+    step "native build tools already installed"
+fi
+
+step "installing pinned Zig toolchain"
+bash native/install-zig.sh
+export PATH="$HOME/.local/bin:$PATH"
+zig_marker="# rust-htslib orb: Zig on PATH"
+if ! grep -Fqx "$zig_marker" "$HOME/.bash_profile" 2>/dev/null; then
+    printf '\n%s\nexport PATH="$HOME/.local/bin:$PATH"\n' "$zig_marker" >> "$HOME/.bash_profile"
 fi
 
 # --- Rust toolchain (stable + rustfmt + clippy) -----------------------------
@@ -82,7 +79,7 @@ EOF
 fi
 
 # --- Pre-build dependencies (the expensive step we want snapshotted) -------
-# hts-sys compiles HTSlib (a large C library) from source, and the Rust
+# Zig compiles HTSlib and its native libraries from source, and the Rust
 # dependency graph is non-trivial. Building once here caches everything in
 # target/ (gitignored) so subsequent cargo build/test/clippy are fast. We warm
 # both the default feature set (what `cargo build`/`cargo test` use by default)

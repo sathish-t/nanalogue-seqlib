@@ -22,6 +22,7 @@ use url::Url;
 
 use crate::errors::{Error, Result};
 use crate::htslib;
+use crate::htslib as hts_sys;
 use crate::tpool::ThreadPool;
 use crate::utils::path_as_bytes;
 
@@ -263,7 +264,7 @@ pub trait Read: Sized {
     /// resulting in faster iteration:
     /// ```
     /// use rust_htslib::bam::{Read, Reader};
-    /// use hts_sys;
+    /// use rust_htslib::htslib as hts_sys;
     /// let mut cram = Reader::from_path("test/test_cram.cram").unwrap();
     /// cram.set_cram_options(hts_sys::hts_fmt_option_CRAM_OPT_REQUIRED_FIELDS,
     ///             hts_sys::sam_fields_SAM_RNAME | hts_sys::sam_fields_SAM_FLAG).unwrap();

@@ -1,0 +1,15 @@
+name: Vendored native build tools
+description: Install the pinned Zig compiler and upstream build generators
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == Linux ]]; then
+          sudo apt-get update
+          sudo apt-get install --yes cmake make perl
+        else
+          command -v cmake >/dev/null || brew install cmake
+        fi
+        bash native/install-zig.sh
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
