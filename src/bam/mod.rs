@@ -1894,13 +1894,17 @@ CCCCCCCCCCCCCCCCCCC"[..],
 
     #[cfg(unix)]
     #[test]
-    fn reads_non_unicode_filename() {
+    fn reads_native_non_ascii_filename() {
         use std::os::unix::ffi::OsStringExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let path = dir
-            .path()
-            .join(std::ffi::OsString::from_vec(b"input-\xFF.bam".to_vec()));
+        // APFS requires valid UTF-8 names; Linux also permits arbitrary bytes.
+        let name: &[u8] = if cfg!(target_os = "macos") {
+            "input-é.bam".as_bytes()
+        } else {
+            b"input-\xFF.bam"
+        };
+        let path = dir.path().join(std::ffi::OsString::from_vec(name.to_vec()));
         fs::copy("test/test.bam", &path).unwrap();
 
         let record = Reader::from_path(&path)

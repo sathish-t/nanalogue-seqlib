@@ -56,13 +56,17 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn builds_index_for_non_unicode_filename() {
+    fn builds_index_for_native_non_ascii_filename() {
         use std::os::unix::ffi::OsStringExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let path = dir
-            .path()
-            .join(std::ffi::OsString::from_vec(b"reference-\xFF.fa".to_vec()));
+        // APFS requires valid UTF-8 names; Linux also permits arbitrary bytes.
+        let name: &[u8] = if cfg!(target_os = "macos") {
+            "reference-é.fa".as_bytes()
+        } else {
+            b"reference-\xFF.fa"
+        };
+        let path = dir.path().join(std::ffi::OsString::from_vec(name.to_vec()));
         std::fs::write(&path, b">chr1\nACGT\n").unwrap();
 
         build(&path).unwrap();
