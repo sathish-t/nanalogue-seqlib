@@ -4,6 +4,16 @@ use std::mem::{align_of, offset_of, size_of};
 
 extern "C" {
     static nanalogue_hts_abi: [usize; 12];
+
+    #[cfg(feature = "curl")]
+    fn OpenSSL_version_num() -> libc::c_ulong;
+    #[cfg(feature = "curl")]
+    fn OSSL_PROVIDER_load(
+        libctx: *mut libc::c_void,
+        name: *const libc::c_char,
+    ) -> *mut libc::c_void;
+    #[cfg(feature = "curl")]
+    fn OSSL_PROVIDER_unload(provider: *mut libc::c_void) -> libc::c_int;
 }
 
 #[test]
@@ -41,6 +51,20 @@ fn cargo_features_match_compiled_htslib() {
     }
     assert_eq!(features & htslib::HTS_FEATURE_PLUGINS, 0);
     assert_ne!(features & htslib::HTS_FEATURE_HTSCODECS, 0);
+}
+
+#[cfg(feature = "curl")]
+#[test]
+fn vendored_openssl_has_expected_version_and_builtin_providers() {
+    assert_eq!(unsafe { OpenSSL_version_num() }, 0x30600040);
+
+    for name in [b"default\0".as_slice(), b"base\0".as_slice()] {
+        let provider = unsafe {
+            OSSL_PROVIDER_load(std::ptr::null_mut(), name.as_ptr().cast::<libc::c_char>())
+        };
+        assert!(!provider.is_null());
+        assert_eq!(unsafe { OSSL_PROVIDER_unload(provider) }, 1);
+    }
 }
 
 #[cfg(feature = "curl")]
