@@ -8,18 +8,21 @@ not exclusively MIT-licensed.
 
 | Source | Version / upstream release commit | License / notice |
 | --- | --- | --- |
-| [HTSlib](https://github.com/samtools/htslib) | 1.19.1, `6a7d33abc6cae840023868ccdd946d0d8759f259` | MIT and BSD notices: `vendor/htslib/LICENSE` and individual files |
-| [htscodecs](https://github.com/samtools/htscodecs) | 1.6.0, `ffda7310c4b3292955561d6c3b1743cb82bfe26b` | BSD-3-Clause: `vendor/htslib/htscodecs/LICENSE.md` |
+| [HTSlib](https://github.com/samtools/htslib) | 1.24, `4b705e4fada8ee2b6b15746f725ee8ac51631803` | MIT and BSD notices: `vendor/htslib/LICENSE` and individual files |
+| [htscodecs](https://github.com/samtools/htscodecs) | 1.6.7, `b9fc194f772e45bb0a1f44b08cbf8697a1384bae` | BSD-3-Clause: `vendor/htslib/htscodecs/LICENSE.md` |
 | [zlib](https://github.com/madler/zlib) | 1.3.2, `da607da739fa6047df13e66a2af6b8bec7c2a498` | Zlib: `vendor/zlib/LICENSE` |
 | [bzip2](https://sourceware.org/git/bzip2.git) | 1.0.8, `6a8690fc8d26c815e798c588f796eabe9d684cf0` | bzip2-1.0.6: `vendor/bzip2/LICENSE` |
-| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.2.5, `2327a461e1afce862c22269b80d3517801103c1b` | Compiled liblzma code is public domain; see `vendor/xz/COPYING`. Uncompiled supporting files also carry GPL/LGPL licenses; all supplied notices are retained. |
+| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.8.4, `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | Compiled liblzma code is 0BSD; see `vendor/xz/COPYING` and `vendor/xz/COPYING.0BSD`. Uncompiled supporting files also carry GPL/LGPL licenses; all supplied notices are retained. |
 | [libdeflate](https://github.com/ebiggers/libdeflate) | 1.26, `92e6a0db9fa848d742f9eb286c92afc60f2c3dda` | MIT: `vendor/libdeflate/COPYING` |
 | [curl](https://github.com/curl/curl) | 8.22.0, `01346829096c61b372692f6dc43ffa778c6caccd` | curl: `vendor/curl/COPYING`, plus `LICENSES/` |
-| [OpenSSL](https://github.com/openssl/openssl) | 3.6.3, `aae016bfd52fcad2bc9657c2c782cfdf73b1ed5f` | Apache-2.0: `vendor/openssl/LICENSE.txt` |
+| [OpenSSL](https://github.com/openssl/openssl) | 3.6.4, `d3c1b1169b3569ff3069e5b399f47b2b28e03d79` | Apache-2.0: `vendor/openssl/LICENSE.txt` |
 | [hts-sys wrapper](https://github.com/rust-bio/hts-sys) | 2.2.1, `64f51cc9c649df98d4d85b49c3ce242efe4aa6e6` | MIT: `native/HTS-SYS-LICENSE` |
 
 Release commits identify upstream baselines; the copied crate distributions
-can omit upstream files or include generated files. Exact input archives:
+can omit upstream files or include generated files. XZ is copied from its
+upstream release commit (annotated tag object `9151b328e76bbc468aa64f85c741886b6227cec1`).
+Exact crates.io input archives for the remaining sources and XZ's retained
+portable `config.h` are:
 
 | crates.io archive | SHA-256 |
 | --- | --- |
@@ -28,7 +31,13 @@ can omit upstream files or include generated files. Exact input archives:
 | bzip2-sys-0.1.13+1.0.8.crate | 225bff33b2141874fe80d71e07d6eec4f85c5c216453dd96388240f96e1acc14 |
 | lzma-sys-0.1.20.crate | 5fda04ab3764e6cde78b9974eec4f779acaba7c4e84b36eca3cf77c581b85d27 |
 | libdeflate-sys-1.26.1.crate | d7870e5fbd2766179a937c725fb11f4ca0ef025d982beb61bd3ce755425bd19c |
-| openssl-src-300.6.1+3.6.3.crate | 46eb8fb9fb3b61ce1c0f8a026c4c1a0714d3a9e138e7fbde78753ce2babc3846 |
+
+OpenSSL 3.6.4 was copied from its upstream release commit using
+`https://api.github.com/repos/openssl/openssl/tarball/d3c1b1169b3569ff3069e5b399f47b2b28e03d79`;
+download SHA-256: `597c001f956b50243b23384796a1f67267824a48427fdbe1744450e6e13306b2`.
+The previous `openssl-src` package's source-file selection was retained;
+upstream documentation, demos, tests, and other files not needed to build the
+libraries remain omitted.
 
 curl 8.22.0 was copied from its upstream release commit archive at
 `https://api.github.com/repos/curl/curl/tarball/01346829096c61b372692f6dc43ffa778c6caccd`;
@@ -40,13 +49,16 @@ layout; curl's source, build files, documentation and license notices remain.
 
 * Classic zlib replaces zlib-ng's compatibility implementation. No formats or
   zlib ABI entry points used by HTSlib are removed.
-* `vendor/xz/config.h` comes from lzma-sys's portable configuration, outside its
-  bundled XZ directory. Only the liblzma sources are compiled.
+* `vendor/xz/config.h` originated in lzma-sys's portable configuration and is
+  retained as the cross-target configuration. Only the liblzma sources are
+  compiled; generator programs and size-optimized CRC alternatives are omitted.
 * libdeflate's two 512-bit x86 checksum implementations explicitly add
-  `evex512` to their function target attributes for Zig's Clang frontend.
+  `evex512` to their function target attributes for Zig 0.15.2 / Clang 20.
   Runtime CPU dispatch remains intact; baseline compilation is not AVX-512.
 * HTSlib configuration/version headers are generated in OUT_DIR. LZMA enables
   both `HAVE_LIBLZMA` and `HAVE_LZMA_H`, including on macOS. Plugins stay off.
+* The separately maintained htscodecs subtree is at 1.6.7 rather than
+  HTSlib 1.24's upstream submodule revision (htscodecs 1.6.6).
 * OpenSSL uses portable C (`no-asm`), static built-in providers, no DSO/engine
   loading, and `/etc/ssl` as the default certificate directory. curl uses only
   our static OpenSSL/zlib; unrelated optional native libraries are disabled.
@@ -57,7 +69,7 @@ layout; curl's source, build files, documentation and license notices remain.
 
 `native/bindings/` contains separate files for x86_64/aarch64 Linux GNU, Linux
 musl, and macOS. These were generated using bindgen 0.72.1, libclang 14.0.6,
-and Zig target headers. Layout assertions are retained. Consumer builds
+and Zig 0.15.2 target headers. Layout assertions are retained. Consumer builds
 do not run bindgen or require libclang; `native/bindgen` is a separate,
 maintainer-only Cargo package and is not a dependency of this crate.
 

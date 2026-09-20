@@ -1,12 +1,11 @@
+// SPDX-License-Identifier: 0BSD
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 /// \file       stream_buffer_decoder.c
 /// \brief      Single-call .xz Stream decoder
 //
 //  Author:     Lasse Collin
-//
-//  This file has been put into the public domain.
-//  You can do whatever you want with this file.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -51,10 +50,6 @@ lzma_stream_buffer_decode(uint64_t *memlimit, uint32_t flags,
 		if (ret == LZMA_STREAM_END) {
 			ret = LZMA_OK;
 		} else {
-			// Something went wrong, restore the positions.
-			*in_pos = in_start;
-			*out_pos = out_start;
-
 			if (ret == LZMA_OK) {
 				// Either the input was truncated or the
 				// output buffer was too small.
@@ -79,6 +74,10 @@ lzma_stream_buffer_decode(uint64_t *memlimit, uint32_t flags,
 						stream_decoder.coder,
 						memlimit, &memusage, 0);
 			}
+
+			// Something went wrong, restore the positions.
+			*in_pos = in_start;
+			*out_pos = out_start;
 		}
 	}
 

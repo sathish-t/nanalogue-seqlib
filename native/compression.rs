@@ -69,7 +69,7 @@ pub fn build(out: &Path, target: &str, compiler: &Path, archiver: &Path) {
                 if path.extension() == Some(OsStr::new("c"))
                     && stem != "crc32_small"
                     && stem != "crc64_small"
-                    && !stem.ends_with("tablegen")
+                    && !stem.ends_with("gen")
                 {
                     sources.push(path.strip_prefix(&source).unwrap().to_owned());
                 }

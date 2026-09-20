@@ -1,6 +1,6 @@
 /*  hts_defs.h -- Miscellaneous definitions.
 
-    Copyright (C) 2013-2015,2017, 2019-2020 Genome Research Ltd.
+    Copyright (C) 2013-2015,2017, 2019-2020, 2024, 2026 Genome Research Ltd.
 
     Author: John Marshall <jm18@sanger.ac.uk>
 
@@ -58,6 +58,12 @@ DEALINGS IN THE SOFTWARE.  */
 #define HTS_NORETURN
 #endif
 
+#if HTS_GCC_AT_LEAST(10,1)
+#define HTS_ACCESS(access_mode, ...) __attribute__ ((access(access_mode, __VA_ARGS__)))
+#else
+#define HTS_ACCESS(access_mode, ...)
+#endif
+
 // Enable optimisation level 3, especially for gcc.  To be used
 // where we want to force vectorisation in hot loops and the default -O2
 // just doesn't cut it.
@@ -65,6 +71,12 @@ DEALINGS IN THE SOFTWARE.  */
 #define HTS_OPT3 __attribute__((optimize("O3")))
 #else
 #define HTS_OPT3
+#endif
+
+#if HTS_COMPILER_HAS(aligned) || HTS_GCC_AT_LEAST(4,3)
+#define HTS_ALIGN32 __attribute__((aligned(32)))
+#else
+#define HTS_ALIGN32
 #endif
 
 // GCC introduced warn_unused_result in 3.4 but added -Wno-unused-result later
@@ -124,6 +136,19 @@ DEALINGS IN THE SOFTWARE.  */
 #define HTSLIB_EXPORT __global
 #else
 #define HTSLIB_EXPORT
+#endif
+
+// Prefetch implementations.
+// We only support a basic implementation here
+#ifdef HAVE___BUILTIN_PREFETCH
+static inline void hts_prefetch(void *p) {
+    __builtin_prefetch(p);
+}
+#else
+static inline void hts_prefetch(void *p) {
+    // Fetch and discard is quite close to a genuine prefetch
+    *(volatile char *)p;
+}
 #endif
 
 #endif

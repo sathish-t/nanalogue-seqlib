@@ -1,6 +1,6 @@
 /*  hts_expr.c -- filter expression parsing and processing.
 
-    Copyright (C) 2020-2022 Genome Research Ltd.
+    Copyright (C) 2020-2022, 2024 Genome Research Ltd.
 
     Author: James Bonfield <jkb@sanger.ac.uk>
 
@@ -38,6 +38,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <math.h>
 
 #include "htslib/hts_expr.h"
+#include "htslib/hts_alloc.h"
 #include "htslib/hts_log.h"
 #include "textutils_internal.h"
 
@@ -527,8 +528,10 @@ static int bitand_expr(hts_filter_t *filt, void *data, hts_expr_sym_func *fn,
             } else if (res->is_str || val.is_str) {
                 hts_expr_val_free(&val);
                 return -1;
+            } else {
+                res->is_true =
+                    (res->d = ((int64_t)res->d & (int64_t)val.d)) != 0;
             }
-            res->is_true = (res->d = ((int64_t)res->d & (int64_t)val.d)) != 0;
         } else {
             break;
         }
@@ -560,8 +563,10 @@ static int bitxor_expr(hts_filter_t *filt, void *data, hts_expr_sym_func *fn,
             } else if (res->is_str || val.is_str) {
                 hts_expr_val_free(&val);
                 return -1;
+            } else {
+                res->is_true =
+                    (res->d = ((int64_t)res->d ^ (int64_t)val.d)) != 0;
             }
-            res->is_true = (res->d = ((int64_t)res->d ^ (int64_t)val.d)) != 0;
         } else {
             break;
         }
@@ -593,8 +598,10 @@ static int bitor_expr(hts_filter_t *filt, void *data, hts_expr_sym_func *fn,
             } else if (res->is_str || val.is_str) {
                 hts_expr_val_free(&val);
                 return -1;
+            } else {
+                res->is_true =
+                    (res->d = ((int64_t)res->d | (int64_t)val.d)) != 0;
             }
-            res->is_true = (res->d = ((int64_t)res->d | (int64_t)val.d)) != 0;
         } else {
             break;
         }
@@ -845,12 +852,12 @@ hts_filter_t *hts_filter_init(const char *str) {
     if (!f) return NULL;
 
     // Oversize to permit faster comparisons with memcmp over strcmp
-    size_t len = strlen(str)+100;
-    if (!(f->str = malloc(len))) {
+    size_t len = strlen(str);
+    if (!(f->str = hts_malloc_ps(sizeof(*f->str), len, 100))) {
         free(f);
         return NULL;
     }
-    strcpy(f->str, str);
+    memcpy(f->str, str, len + 1);
     return f;
 }
 
