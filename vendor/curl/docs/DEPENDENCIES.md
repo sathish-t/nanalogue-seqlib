@@ -4,11 +4,9 @@ Copyright (C) Daniel Stenberg, <daniel@haxx.se>, et al.
 SPDX-License-Identifier: curl
 -->
 
-# curl internals
+# curl dependencies
 
-The canonical libcurl internals documentation is now in the [everything
-curl](https://everything.curl.dev/internals) book. This file lists supported
-versions of libs and build tools.
+Supported minimum versions of libs and build tools.
 
 ## Portability
 
@@ -26,26 +24,28 @@ want it to remain functional and buildable with these and later versions
 
 We aim to support these or later versions:
 
-- brotli       1.0.0 (2017-09-21)
-- c-ares       1.16.0 (2020-03-13)
-- GnuTLS       3.6.5 (2018-12-01)
-- libidn2      2.0.0 (2017-03-29)
-- libgsasl     1.6.0 (2010-12-14)
-- libpsl       0.16.0 (2016-12-10)
-- LibreSSL     2.9.1 (2019-04-21)
-- libssh       0.9.0 (2019-06-28)
-- libssh2      1.9.0 (2019-06-20)
-- mbedTLS      3.2.0 (2022-07-11)
-- MIT Kerberos 1.3 (2003-07-31)
-- nghttp2      1.15.0 (2016-09-25)
-- nghttp3      1.0.0 (2023-10-15)
-- ngtcp2       1.0.0 (2023-10-15), with OpenSSL 3.5.0+: 1.12.0 (2025-04-16)
-- OpenLDAP     2.0 (2000-08-01)
-- OpenSSL      3.0.0 (2021-09-07)
-- Windows      Vista 6.0 (2006-11-08 - 2012-04-10)
-- wolfSSL      5.0.0 (2021-11-01)
-- zlib         1.2.5.2 (2011-12-11)
-- zstd         1.0 (2016-08-31)
+- brotli        1.0.0 (2017-09-21)
+- c-ares        1.16.0 (2020-03-13)
+- GnuTLS        3.6.5 (2018-12-01)
+- libidn2       2.0.0 (2017-03-29)
+- libgsasl      1.6.0 (2010-12-14)
+- libpsl        0.16.0 (2016-12-10)
+- LibreSSL      2.9.1 (2019-04-21)
+- libssh        0.9.0 (2019-06-28)
+- libssh2       1.9.0 (2019-06-20)
+- mbedTLS       3.2.0 (2022-07-11)
+- MIT Kerberos  1.3 (2003-07-31)
+- nettle        3.4.1 (2018-12-04)
+- nghttp2       1.15.0 (2016-09-25)
+- nghttp3       1.0.0 (2023-10-15)
+- ngtcp2        1.0.0 (2023-10-15), with OpenSSL 3.5.0+: 1.12.0 (2025-04-16)
+- OpenLDAP      2.0 (2000-08-01)
+- OpenSSL       3.0.0 (2021-09-07)
+- quiche        0.20.0 (2023-12-12)
+- Windows       Vista 6.0 (2006-11-08 - 2012-04-10)
+- wolfSSL       5.0.0 (2021-11-01)
+- zlib          1.2.5.2 (2011-12-11)
+- zstd          1.0 (2016-08-31)
 
 ## Build tools
 
@@ -63,10 +63,15 @@ these or later versions:
 - perl           5.8 (2002-07-19), on Windows: 5.22 (2015-06-01)
 - Visual Studio  2010 10.0 (2010-04-12 - 2020-07-14)
 
-## Library Symbols
+## Testing
 
-All symbols used internally in libcurl must use a `Curl_` prefix if they are
-used in more than a single file. Single-file symbols must be made static.
-Public ("exported") symbols must use a `curl_` prefix. Public API functions
-are marked with `CURL_EXTERN` in the public header files so that all others
-can be hidden on platforms where this is possible.
+Certain tests require the following packages to operate. In some cases, tests
+that do not find the necessary requirements are automatically skipped.
+
+- OpenSSL        (see above)
+- nghttp2        (see above)
+- OpenSSH
+- perl           (see above)
+- pytest
+- Python         3.8 (2019-10-14)
+- stunnel

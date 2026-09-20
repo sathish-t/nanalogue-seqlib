@@ -14,7 +14,7 @@ not exclusively MIT-licensed.
 | [bzip2](https://sourceware.org/git/bzip2.git) | 1.0.8, `6a8690fc8d26c815e798c588f796eabe9d684cf0` | bzip2-1.0.6: `vendor/bzip2/LICENSE` |
 | [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.8.4, `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | Compiled liblzma code is 0BSD; see `vendor/xz/COPYING` and `vendor/xz/COPYING.0BSD`. Uncompiled supporting files also carry GPL/LGPL licenses; all supplied notices are retained. |
 | [libdeflate](https://github.com/ebiggers/libdeflate) | 1.26, `92e6a0db9fa848d742f9eb286c92afc60f2c3dda` | MIT: `vendor/libdeflate/COPYING` |
-| [curl](https://github.com/curl/curl) | 8.21.0, `68720b4837284335b2d63cb358f8f6ce65f5bc55` | curl: `vendor/curl/COPYING`, plus `LICENSES/` |
+| [curl](https://github.com/curl/curl) | 8.22.0, `01346829096c61b372692f6dc43ffa778c6caccd` | curl: `vendor/curl/COPYING`, plus `LICENSES/` |
 | [OpenSSL](https://github.com/openssl/openssl) | 3.6.4, `d3c1b1169b3569ff3069e5b399f47b2b28e03d79` | Apache-2.0: `vendor/openssl/LICENSE.txt` |
 | [hts-sys wrapper](https://github.com/rust-bio/hts-sys) | 2.2.1, `64f51cc9c649df98d4d85b49c3ce242efe4aa6e6` | MIT: `native/HTS-SYS-LICENSE` |
 
@@ -31,7 +31,6 @@ portable `config.h` are:
 | bzip2-sys-0.1.13+1.0.8.crate | 225bff33b2141874fe80d71e07d6eec4f85c5c216453dd96388240f96e1acc14 |
 | lzma-sys-0.1.20.crate | 5fda04ab3764e6cde78b9974eec4f779acaba7c4e84b36eca3cf77c581b85d27 |
 | libdeflate-sys-1.26.1.crate | d7870e5fbd2766179a937c725fb11f4ca0ef025d982beb61bd3ce755425bd19c |
-| curl-sys-0.4.90+curl-8.21.0.crate | 97799a0d220bfb3361e0fe4936966ff8c4b24d65c3f06dfc70d7b680b44e7897 |
 
 OpenSSL 3.6.4 was copied from its upstream release commit using
 `https://api.github.com/repos/openssl/openssl/tarball/d3c1b1169b3569ff3069e5b399f47b2b28e03d79`;
@@ -40,9 +39,11 @@ The previous `openssl-src` package's source-file selection was retained;
 upstream documentation, demos, tests, and other files not needed to build the
 libraries remain omitted.
 
-curl's omitted `docs/` tree was added from its upstream release commit via
-`https://api.github.com/repos/curl/curl/tarball/68720b4837284335b2d63cb358f8f6ce65f5bc55`;
-download SHA-256: `cf3a1f5f8fbe9ceda62cdf72e3eea215e6a60bc401f7b22e73b195cdd4c08601`.
+curl 8.22.0 was copied from its upstream release commit archive at
+`https://api.github.com/repos/curl/curl/tarball/01346829096c61b372692f6dc43ffa778c6caccd`;
+download SHA-256: `aed88124499909b04b34a0d89cd724deddf201465984b4d30a0e4ee4f7f5832c`.
+The upstream test tree is omitted, matching the previous `curl-sys`-sourced
+layout; curl's source, build files, documentation and license notices remain.
 
 ## Local build choices and patches
 

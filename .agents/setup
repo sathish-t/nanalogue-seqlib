@@ -35,7 +35,7 @@ else
     step "native build tools already installed"
 fi
 
-step "installing pinned Zig toolchain"
+step "installing pinned Zig 0.15.2 toolchain"
 bash native/install-zig.sh
 export PATH="$HOME/.local/bin:$PATH"
 zig_marker="# rust-htslib orb: Zig on PATH"
