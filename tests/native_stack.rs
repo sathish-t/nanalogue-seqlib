@@ -45,6 +45,54 @@ fn cargo_features_match_compiled_htslib() {
 
 #[cfg(feature = "curl")]
 #[test]
+fn vendored_curl_is_8_22() {
+    use std::ffi::{c_char, c_int, c_long, c_uint, CStr};
+
+    #[repr(C)]
+    struct CurlVersionInfo {
+        age: c_int,
+        version: *const c_char,
+        version_num: c_uint,
+        host: *const c_char,
+        features: c_int,
+        ssl_version: *const c_char,
+        ssl_version_num: c_long,
+        libz_version: *const c_char,
+        protocols: *const *const c_char,
+    }
+
+    extern "C" {
+        fn curl_version() -> *const c_char;
+        fn curl_version_info(age: c_int) -> *const CurlVersionInfo;
+    }
+
+    let version = unsafe { CStr::from_ptr(curl_version()) };
+    assert!(
+        version.to_bytes().starts_with(b"libcurl/8.22.0"),
+        "unexpected curl version: {}",
+        version.to_string_lossy()
+    );
+
+    let info = unsafe { &*curl_version_info(0) };
+    let mut protocols = Vec::new();
+    let mut current = info.protocols;
+    unsafe {
+        while !(*current).is_null() {
+            protocols.push(CStr::from_ptr(*current).to_str().unwrap());
+            current = current.add(1);
+        }
+    }
+    assert_eq!(protocols, ["ftp", "ftps", "http", "https"]);
+
+    const SSL_AND_ZLIB: c_int = (1 << 2) | (1 << 3);
+    const DISABLED_DEPENDENCIES: c_int =
+        (1 << 5) | (1 << 8) | (1 << 10) | (1 << 16) | (1 << 20) | (1 << 23) | (1 << 25) | (1 << 26);
+    assert_eq!(info.features & SSL_AND_ZLIB, SSL_AND_ZLIB);
+    assert_eq!(info.features & DISABLED_DEPENDENCIES, 0);
+}
+
+#[cfg(feature = "curl")]
+#[test]
 fn vendored_curl_reads_bam_over_http() {
     use rust_htslib::bam::{Read, Reader};
     use std::io::{BufRead, BufReader, Write};
