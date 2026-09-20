@@ -1,9 +1,13 @@
 //! Check the C/Rust ABI and that Cargo features really enable native codecs.
 use rust_htslib::htslib;
+#[cfg(feature = "lzma")]
+use std::ffi::CStr;
 use std::mem::{align_of, offset_of, size_of};
 
 extern "C" {
     static nanalogue_hts_abi: [usize; 12];
+    #[cfg(feature = "lzma")]
+    fn lzma_version_string() -> *const libc::c_char;
 
     #[cfg(feature = "curl")]
     fn OpenSSL_version_num() -> libc::c_ulong;
@@ -51,6 +55,13 @@ fn cargo_features_match_compiled_htslib() {
     }
     assert_eq!(features & htslib::HTS_FEATURE_PLUGINS, 0);
     assert_ne!(features & htslib::HTS_FEATURE_HTSCODECS, 0);
+}
+
+#[cfg(feature = "lzma")]
+#[test]
+fn bundled_liblzma_is_5_8_4() {
+    let version = unsafe { CStr::from_ptr(lzma_version_string()) };
+    assert_eq!(version.to_bytes(), b"5.8.4");
 }
 
 #[cfg(feature = "curl")]
