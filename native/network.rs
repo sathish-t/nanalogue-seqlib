@@ -99,6 +99,9 @@ pub fn build(out: &Path, target: &str, compiler: &Path, archiver: &Path) {
         .arg("-DBUILD_MISC_DOCS=OFF")
         .arg("-DENABLE_CURL_MANUAL=OFF")
         .arg("-DCURL_USE_PKGCONFIG=OFF")
+        // CMake's FindOpenSSL otherwise probes pkg-config independently of curl.
+        // Keep FindPkgConfig's macros available for older CMake versions.
+        .arg("-DPKG_CONFIG_EXECUTABLE=/bin/false")
         .arg("-DCURL_USE_CMAKECONFIG=OFF")
         .arg("-DCURL_CA_BUNDLE=none")
         .arg("-DCURL_CA_PATH=none")
