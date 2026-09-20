@@ -20,9 +20,9 @@ step() { printf '\n\033[1m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*"; }
 # shellcheck disable=SC1091
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
-# --- Upstream curl/OpenSSL build tools -----------------------------------
+# --- Upstream curl/OpenSSL and verified Zig build tools -----------------
 need_apt=()
-for pkg in cmake make perl; do
+for pkg in cmake make minisign perl; do
     if ! dpkg -s "$pkg" >/dev/null 2>&1; then
         need_apt+=("$pkg")
     fi

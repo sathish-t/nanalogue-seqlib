@@ -7,9 +7,10 @@ runs:
       run: |
         if [[ "$RUNNER_OS" == Linux ]]; then
           sudo apt-get update
-          sudo apt-get install --yes cmake make perl
+          sudo apt-get install --yes cmake make minisign perl
         else
           command -v cmake >/dev/null || brew install cmake
+          command -v minisign >/dev/null || brew install minisign
         fi
         bash native/install-zig.sh
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"

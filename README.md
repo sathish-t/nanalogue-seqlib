@@ -20,10 +20,14 @@ for native OS headers and final linking. The supported hosts are Linux and macOS
 are x86_64 and ARM64 Linux GNU/musl and macOS.
 
 ```sh
-bash native/install-zig.sh  # optional checksum-verified toolchain installer
+# Optional installer; requires curl, minisign, and xz/tar.
+bash native/install-zig.sh
 export PATH="$HOME/.local/bin:$PATH"
 cargo test --all-features
 ```
+
+The installer downloads only from Zig's community mirrors and verifies both
+the pinned SHA-256 and Zig Software Foundation minisign signature before use.
 
 Set `ZIG` to an absolute executable path if Zig is not on PATH. All native C
 compilation and archive creation use Zig, including when cross-compiling.
