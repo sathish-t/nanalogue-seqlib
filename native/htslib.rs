@@ -86,7 +86,7 @@ pub fn build(out: &Path, compiler: &Path, archiver: &Path) {
         "#define HTS_VERSION_TEXT \"1.19.1\"\n#define HTSCODECS_VERSION_TEXT \"1.6.0\"\n",
     )
     .unwrap();
-    fs::write(build.join("config_vars.h"), "#define HTS_CC \"zig cc 0.14.1\"\n#define HTS_CPPFLAGS \"\"\n#define HTS_CFLAGS \"-O2 -fPIC -mcpu=baseline\"\n#define HTS_LDFLAGS \"\"\n#define HTS_LIBS \"vendored static libraries\"\n").unwrap();
+    fs::write(build.join("config_vars.h"), "#define HTS_CC \"zig cc 0.15.2\"\n#define HTS_CPPFLAGS \"\"\n#define HTS_CFLAGS \"-O2 -fPIC -mcpu=baseline\"\n#define HTS_LDFLAGS \"\"\n#define HTS_LIBS \"vendored static libraries\"\n").unwrap();
     sources.push(Path::new("native/wrapper.c").to_owned());
     let mut objects = Vec::new();
     for (i, file) in sources.iter().enumerate() {

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 /// \file       simple_coder.c
@@ -7,9 +9,6 @@
 /// in equals the number of bytes out.
 //
 //  Author:     Lasse Collin
-//
-//  This file has been put into the public domain.
-//  You can do whatever you want with this file.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -139,9 +138,11 @@ simple_code(void *coder_ptr, const lzma_allocator *allocator,
 				return ret;
 		}
 
-		// Filter out[].
+		// Filter out[] unless there is nothing to filter.
+		// This way we avoid null pointer + 0 (undefined behavior)
+		// when out == NULL.
 		const size_t size = *out_pos - out_start;
-		const size_t filtered = call_filter(
+		const size_t filtered = size == 0 ? 0 : call_filter(
 				coder, out + out_start, size);
 
 		const size_t unfiltered = size - filtered;
@@ -251,6 +252,17 @@ lzma_simple_coder_init(lzma_next_coder *next, const lzma_allocator *allocator,
 		if (coder == NULL)
 			return LZMA_MEM_ERROR;
 
+		// Allocate memory for the filter-specific data structure.
+		if (simple_size > 0) {
+			coder->simple = lzma_alloc(simple_size, allocator);
+			if (coder->simple == NULL) {
+				lzma_free(coder, allocator);
+				return LZMA_MEM_ERROR;
+			}
+		} else {
+			coder->simple = NULL;
+		}
+
 		next->coder = coder;
 		next->code = &simple_code;
 		next->end = &simple_coder_end;
@@ -259,15 +271,6 @@ lzma_simple_coder_init(lzma_next_coder *next, const lzma_allocator *allocator,
 		coder->next = LZMA_NEXT_CODER_INIT;
 		coder->filter = filter;
 		coder->allocated = 2 * unfiltered_max;
-
-		// Allocate memory for filter-specific data structure.
-		if (simple_size > 0) {
-			coder->simple = lzma_alloc(simple_size, allocator);
-			if (coder->simple == NULL)
-				return LZMA_MEM_ERROR;
-		} else {
-			coder->simple = NULL;
-		}
 	}
 
 	if (filters[0].options != NULL) {

@@ -12,14 +12,17 @@ not exclusively MIT-licensed.
 | [htscodecs](https://github.com/samtools/htscodecs) | 1.6.0, `ffda7310c4b3292955561d6c3b1743cb82bfe26b` | BSD-3-Clause: `vendor/htslib/htscodecs/LICENSE.md` |
 | [zlib](https://github.com/madler/zlib) | 1.3.2, `da607da739fa6047df13e66a2af6b8bec7c2a498` | Zlib: `vendor/zlib/LICENSE` |
 | [bzip2](https://sourceware.org/git/bzip2.git) | 1.0.8, `6a8690fc8d26c815e798c588f796eabe9d684cf0` | bzip2-1.0.6: `vendor/bzip2/LICENSE` |
-| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.2.5, `2327a461e1afce862c22269b80d3517801103c1b` | Compiled liblzma code is public domain; see `vendor/xz/COPYING`. Uncompiled supporting files also carry GPL/LGPL licenses; all supplied notices are retained. |
+| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.8.4, `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | Compiled liblzma code is 0BSD; see `vendor/xz/COPYING` and `vendor/xz/COPYING.0BSD`. Uncompiled supporting files also carry GPL/LGPL licenses; all supplied notices are retained. |
 | [libdeflate](https://github.com/ebiggers/libdeflate) | 1.26, `92e6a0db9fa848d742f9eb286c92afc60f2c3dda` | MIT: `vendor/libdeflate/COPYING` |
 | [curl](https://github.com/curl/curl) | 8.21.0, `68720b4837284335b2d63cb358f8f6ce65f5bc55` | curl: `vendor/curl/COPYING`, plus `LICENSES/` |
 | [OpenSSL](https://github.com/openssl/openssl) | 3.6.3, `aae016bfd52fcad2bc9657c2c782cfdf73b1ed5f` | Apache-2.0: `vendor/openssl/LICENSE.txt` |
 | [hts-sys wrapper](https://github.com/rust-bio/hts-sys) | 2.2.1, `64f51cc9c649df98d4d85b49c3ce242efe4aa6e6` | MIT: `native/HTS-SYS-LICENSE` |
 
 Release commits identify upstream baselines; the copied crate distributions
-can omit upstream files or include generated files. Exact input archives:
+can omit upstream files or include generated files. XZ is copied from its
+upstream release commit (annotated tag object `9151b328e76bbc468aa64f85c741886b6227cec1`).
+Exact crates.io input archives for the remaining sources and XZ's retained
+portable `config.h` are:
 
 | crates.io archive | SHA-256 |
 | --- | --- |
@@ -39,10 +42,11 @@ download SHA-256: `cf3a1f5f8fbe9ceda62cdf72e3eea215e6a60bc401f7b22e73b195cdd4c08
 
 * Classic zlib replaces zlib-ng's compatibility implementation. No formats or
   zlib ABI entry points used by HTSlib are removed.
-* `vendor/xz/config.h` comes from lzma-sys's portable configuration, outside its
-  bundled XZ directory. Only the liblzma sources are compiled.
+* `vendor/xz/config.h` originated in lzma-sys's portable configuration and is
+  retained as the cross-target configuration. Only the liblzma sources are
+  compiled; generator programs and size-optimized CRC alternatives are omitted.
 * libdeflate's two 512-bit x86 checksum implementations explicitly add
-  `evex512` to their function target attributes for Zig 0.14.1 / Clang 19.
+  `evex512` to their function target attributes for Zig 0.15.2 / Clang 20.
   Runtime CPU dispatch remains intact; baseline compilation is not AVX-512.
 * HTSlib configuration/version headers are generated in OUT_DIR. LZMA enables
   both `HAVE_LIBLZMA` and `HAVE_LZMA_H`, including on macOS. Plugins stay off.
@@ -56,7 +60,7 @@ download SHA-256: `cf3a1f5f8fbe9ceda62cdf72e3eea215e6a60bc401f7b22e73b195cdd4c08
 
 `native/bindings/` contains separate files for x86_64/aarch64 Linux GNU, Linux
 musl, and macOS. These were generated using bindgen 0.72.1, libclang 14.0.6,
-and Zig 0.14.1 target headers. Layout assertions are retained. Consumer builds
+and Zig target headers. Layout assertions are retained. Consumer builds
 do not run bindgen or require libclang; `native/bindgen` is a separate,
 maintainer-only Cargo package and is not a dependency of this crate.
 
@@ -74,5 +78,5 @@ here preserve the previous native dependency baseline rather than claiming
 that every bundled release is the newest or free of known vulnerabilities.
 
 Zig itself is a build prerequisite, not copied into the library. The explicit
-installer pins 0.14.1 and verifies platform-specific SHA-256 checksums. Its
+installer pins 0.15.2 and verifies platform-specific SHA-256 checksums. Its
 upstream distribution includes its own compiler/runtime license notices.

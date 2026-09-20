@@ -22,10 +22,10 @@ fn main() {
     let version = Command::new(&zig)
         .arg("version")
         .output()
-        .expect("install Zig 0.14.1 and put zig on PATH (or set ZIG to its absolute path)");
+        .expect("install Zig 0.15.2 and put zig on PATH (or set ZIG to its absolute path)");
     assert!(
-        version.status.success() && version.stdout == b"0.14.1\n",
-        "this native build requires Zig 0.14.1"
+        version.status.success() && version.stdout == b"0.15.2\n",
+        "this native build requires Zig 0.15.2"
     );
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let compiler = out.join("zig-cc.sh");
