@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2013-2020, 2023 Genome Research Ltd.
+Copyright (c) 2013-2020, 2023-2024, 2026 Genome Research Ltd.
 Author: James Bonfield <jkb@sanger.ac.uk>
 
 Redistribution and use in source and binary forms, with or without
@@ -64,6 +64,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../htslib/bgzf.h"
 #include "../htslib/hfile.h"
+#include "../htslib/hts_alloc.h"
 #include "../hts_internal.h"
 #include "cram.h"
 #include "os.h"
@@ -253,6 +254,9 @@ int cram_index_load(cram_fd *fd, const char *fn, const char *fn_idx) {
     }
 
 
+    // refid indexes fd->index, so bound it to the header's reference count.
+    int nref = sam_hdr_nref(fd->header);
+
     // Parse it line at a time
     while (pos < kstr.l) {
         /* 1.1 layout */
@@ -277,7 +281,7 @@ int cram_index_load(cram_fd *fd, const char *fn, const char *fn_idx) {
         e.end += e.start-1;
         //printf("%d/%d..%d-offset=%" PRIu64 ",len=%d,slice=%d\n", e.refid, e.start, e.end, e.offset, e.len, e.slice);
 
-        if (e.refid < -1) {
+        if (e.refid < -1 || e.refid >= nref) {
             hts_log_error("Malformed index file, refid %d", e.refid);
             goto fail;
         }
@@ -287,8 +291,8 @@ int cram_index_load(cram_fd *fd, const char *fn, const char *fn_idx) {
                 cram_index *new_idx;
                 int new_sz = e.refid+2;
                 size_t index_end = fd->index_sz * sizeof(*fd->index);
-                new_idx = realloc(fd->index,
-                                  new_sz * sizeof(*fd->index));
+                new_idx = hts_realloc_p(fd->index, sizeof(*fd->index),
+                                        new_sz);
                 if (!new_idx)
                     goto fail;
 
@@ -298,6 +302,10 @@ int cram_index_load(cram_fd *fd, const char *fn, const char *fn_idx) {
                        fd->index_sz * sizeof(*fd->index) - index_end);
             }
             idx = &fd->index[e.refid+1];
+            if (idx->e) {
+                hts_log_error("Index is not sorted");
+                goto fail;
+            }
             idx->refid = e.refid;
             idx->start = INT_MIN;
             idx->end   = INT_MAX;
@@ -315,7 +323,7 @@ int cram_index_load(cram_fd *fd, const char *fn, const char *fn_idx) {
         if (idx->nslice+1 >= idx->nalloc) {
             cram_index *new_e;
             idx->nalloc = idx->nalloc ? idx->nalloc*2 : 16;
-            new_e = realloc(idx->e, idx->nalloc * sizeof(*idx->e));
+            new_e = hts_realloc_p(idx->e, sizeof(*idx->e), idx->nalloc);
             if (!new_e)
                 goto fail;
 
@@ -329,7 +337,7 @@ int cram_index_load(cram_fd *fd, const char *fn, const char *fn_idx) {
         if (++idx_stack_ptr >= idx_stack_alloc) {
             cram_index **new_stack;
             idx_stack_alloc *= 2;
-            new_stack = realloc(idx_stack, idx_stack_alloc*sizeof(*idx_stack));
+            new_stack = hts_realloc_p(idx_stack, sizeof(*idx_stack), idx_stack_alloc);
             if (!new_stack)
                 goto fail;
             idx_stack = new_stack;
@@ -410,6 +418,9 @@ cram_index *cram_index_query(cram_fd *fd, int refid, hts_pos_t pos,
         // Continue from a previous search.
         // We switch to just scanning the linked list, as the nested
         // lists are typically short.
+        if (refid == HTS_IDX_NOCOOR)
+            refid = -1;
+
         e = from->e_next;
         if (e && e->refid == refid && e->start <= pos)
             return e;
@@ -423,6 +434,7 @@ cram_index *cram_index_query(cram_fd *fd, int refid, hts_pos_t pos,
         // fail, or already there, dealt with elsewhere.
         return NULL;
 
+    case -1:
     case HTS_IDX_NOCOOR:
         refid = -1;
         pos = 0;
@@ -576,9 +588,7 @@ int cram_seek_to_refpos(cram_fd *fd, cram_range *r) {
     // Ideally use an index, so see if we have one.
     if ((e = cram_index_query(fd, r->refid, r->start, NULL))) {
         if (0 != cram_seek(fd, e->offset, SEEK_SET)) {
-            if (0 != cram_seek(fd, e->offset - fd->first_container, SEEK_CUR)) {
-                ret = -1; goto err;
-            }
+            ret = -1; goto err;
         }
     } else {
         // Absent from index, but this most likely means it simply has no data.
@@ -775,11 +785,12 @@ int cram_index_container(cram_fd *fd,
  *         negative on failure (-1 for read failure, -4 for write failure)
  */
 int cram_index_build(cram_fd *fd, const char *fn_base, const char *fn_idx) {
-    cram_container *c;
+    cram_container *c = NULL;
     off_t cpos, hpos;
-    BGZF *fp;
+    BGZF *fp = NULL;
     kstring_t fn_idx_str = {0};
     int64_t last_ref = -9, last_start = -9;
+    int ret = -1;
 
     // Useful for cram_index_build_multiref
     cram_set_option(fd, CRAM_OPT_REQUIRED_FIELDS, SAM_RNAME | SAM_POS | SAM_CIGAR);
@@ -808,30 +819,29 @@ int cram_index_build(cram_fd *fd, const char *fn_base, const char *fn_idx) {
         hpos = htell(fd->fp);
 
         if (!(c->comp_hdr_block = cram_read_block(fd)))
-            return -1;
+            goto err;
         assert(c->comp_hdr_block->content_type == COMPRESSION_HEADER);
 
         c->comp_hdr = cram_decode_compression_header(fd, c->comp_hdr_block);
         if (!c->comp_hdr)
-            return -1;
+            goto err;
 
         if (c->ref_seq_id == last_ref && c->ref_seq_start < last_start) {
             hts_log_error("CRAM file is not sorted by chromosome / position");
-            return -2;
+            ret = -2;
+            goto err;
         }
         last_ref = c->ref_seq_id;
         last_start = c->ref_seq_start;
 
-        if (cram_index_container(fd, c, fp, cpos) < 0) {
-            bgzf_close(fp);
-            return -1;
-        }
+        if (cram_index_container(fd, c, fp, cpos) < 0)
+            goto err;
 
         off_t next_cpos = htell(fd->fp);
         if (next_cpos != hpos + c->length) {
             hts_log_error("Length %"PRId32" in container header at offset %lld does not match block lengths (%lld)",
                           c->length, (long long) cpos, (long long) next_cpos - hpos);
-            return -1;
+            goto err;
         }
         cpos = next_cpos;
 
@@ -843,4 +853,201 @@ int cram_index_build(cram_fd *fd, const char *fn_base, const char *fn_idx) {
     }
 
     return (bgzf_close(fp) >= 0)? 0 : -4;
+
+ err:
+    if (fp)
+        bgzf_close(fp);
+    if (c)
+        cram_free_container(c);
+    return ret;
+}
+
+// internal recursive step
+static int64_t cram_num_containers_between_(cram_index *e, int64_t *last_pos,
+                                            int64_t nct,
+                                            off_t cstart, off_t cend,
+                                            int64_t *first, int64_t *last) {
+    int64_t nc = 0, i;
+
+    if (e->offset) {
+        if (e->offset != *last_pos) {
+            if (e->offset >= cstart && (!cend || e->offset <= cend)) {
+                if (first && *first < 0)
+                    *first = nct;
+                if (last)
+                    *last = nct;
+            }
+            nc++;
+        }
+        // else a new multi-ref in same container
+        *last_pos = e->offset;
+    }
+
+    for (i = 0; i < e->nslice; i++)
+        nc += cram_num_containers_between_(&e->e[i], last_pos, nc + nct,
+                                           cstart, cend, first, last);
+
+    return nc;
+}
+
+/*! Returns the number of containers in the CRAM file within given offsets.
+ *
+ * The cstart and cend offsets are the locations of the start of containers
+ * as returned by index_container_offset.
+ *
+ * If non-NULL, first and last will hold the inclusive range of container
+ * numbers, counting from zero.
+ *
+ * @return
+ * Returns the number of containers, equivalent to *last-*first+1.
+ */
+int64_t cram_num_containers_between(cram_fd *fd,
+                                    off_t cstart, off_t cend,
+                                    int64_t *first, int64_t *last) {
+    int64_t nc = 0, i;
+    int64_t last_pos = -99;
+    int64_t l_first = -1, l_last = -1;
+
+    for (i = 0; i < fd->index_sz; i++) {
+        int j = i+1 == fd->index_sz ? 0 : i+1; // maps "*" to end
+        nc += cram_num_containers_between_(&fd->index[j], &last_pos, nc,
+                                           cstart, cend, &l_first, &l_last);
+    }
+
+    if (first)
+        *first = l_first;
+    if (last)
+        *last = l_last;
+
+    return l_last - l_first + 1;
+}
+
+/*
+ * Queries the total number of distinct containers in the index.
+ * Note there may be more containers in the file than in the index, as we
+ * are not required to have an index entry for every one.
+ */
+int64_t cram_num_containers(cram_fd *fd) {
+    return cram_num_containers_between(fd, 0, 0, NULL, NULL);
+}
+
+
+/*! Returns the byte offset for the start of the n^th container.
+ *
+ * The index must have previously been loaded, otherwise <0 is returned.
+ */
+static cram_index *cram_container_num2offset_(cram_index *e, int num,
+                                              int64_t *last_pos, int *nc) {
+    if (e->offset) {
+        if (e->offset != *last_pos) {
+            if (*nc == num)
+                return e;
+            (*nc)++;
+        }
+        // else a new multi-ref in same container
+        *last_pos = e->offset;
+    }
+
+    int i;
+    for (i = 0; i < e->nslice; i++) {
+        cram_index *tmp = cram_container_num2offset_(&e->e[i], num,
+                                                     last_pos, nc);
+        if (tmp)
+            return tmp;
+    }
+
+
+    return NULL;
+}
+
+off_t cram_container_num2offset(cram_fd *fd, int64_t num) {
+    int nc = 0, i;
+    int64_t last_pos = -9;
+    cram_index *e = NULL;
+
+    for (i = 0; i < fd->index_sz; i++) {
+        int j = i+1 == fd->index_sz ? 0 : i+1; // maps "*" to end
+        if (!fd->index[j].nslice)
+            continue;
+        if ((e = cram_container_num2offset_(&fd->index[j], num,
+                                            &last_pos, &nc)))
+            break;
+    }
+
+    return e ? e->offset : -1;
+}
+
+
+/*! Returns the container number for the first container at offset >= pos.
+ *
+ * The index must have previously been loaded, otherwise <0 is returned.
+ */
+static cram_index *cram_container_offset2num_(cram_index *e, off_t pos,
+                                              int64_t *last_pos, int *nc) {
+    if (e->offset) {
+        if (e->offset != *last_pos) {
+            if (e->offset >= pos)
+                return e;
+            (*nc)++;
+        }
+        // else a new multi-ref in same container
+        *last_pos = e->offset;
+    }
+
+    int i;
+    for (i = 0; i < e->nslice; i++) {
+        cram_index *tmp = cram_container_offset2num_(&e->e[i], pos,
+                                                     last_pos, nc);
+        if (tmp)
+            return tmp;
+    }
+
+
+    return NULL;
+}
+
+int64_t cram_container_offset2num(cram_fd *fd, off_t pos) {
+    int nc = 0, i;
+    int64_t last_pos = -9;
+    cram_index *e = NULL;
+
+    for (i = 0; i < fd->index_sz; i++) {
+        int j = i+1 == fd->index_sz ? 0 : i+1; // maps "*" to end
+        if (!fd->index[j].nslice)
+            continue;
+        if ((e = cram_container_offset2num_(&fd->index[j], pos,
+                                            &last_pos, &nc)))
+            break;
+    }
+
+    return e ? nc : -1;
+}
+
+/*!
+ * Returns the file offsets of CRAM containers covering a specific region
+ * query.  Note both offsets are the START of the container.
+ *
+ * first will point to the start of the first overlapping container
+ * last will point to the start of the last overlapping container
+ *
+ * Returns 0 on success
+ *        <0 on failure
+ */
+int cram_index_extents(cram_fd *fd, int refid, hts_pos_t start, hts_pos_t end,
+                       off_t *first, off_t *last) {
+    cram_index *ci;
+
+    if (first) {
+        if (!(ci = cram_index_query(fd, refid, start, NULL)))
+            return -1;
+        *first = ci->offset;
+    }
+
+    if (last) {
+        if (!(ci = cram_index_query_last(fd, refid, end)))
+            return -1;
+        *last = ci->offset;
+    }
+
+    return 0;
 }

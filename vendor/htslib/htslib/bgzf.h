@@ -3,7 +3,7 @@
 /*
    Copyright (c) 2008 Broad Institute / Massachusetts Institute of Technology
                  2011, 2012 Attractive Chaos <attractor@live.co.uk>
-   Copyright (C) 2009, 2013, 2014, 2017, 2018-2019, 2022-2023 Genome Research Ltd
+   Copyright (C) 2009, 2013, 2014, 2017, 2018-2019, 2022-2024, 2026 Genome Research Ltd
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -31,6 +31,7 @@
 #define HTSLIB_BGZF_H
 
 #include <stdint.h>
+#include <string.h>
 #include <sys/types.h>
 
 #include "hts_defs.h"
@@ -143,6 +144,31 @@ typedef struct BGZF BGZF;
     HTSLIB_EXPORT
     ssize_t bgzf_read(BGZF *fp, void *data, size_t length) HTS_RESULT_USED;
 
+/**
+ * bgzf_read optimised for small quantities, as a static inline
+ * See bgzf_read() normal function for return values.
+ */
+static inline ssize_t bgzf_read_small(BGZF *fp, void *data, size_t length) {
+    // A block length of 0 implies current block isn't loaded (see
+    // bgzf_seek_common).  That means length - offset may be negative, which
+    // will be promoted to unsigned for purposes of the comparison.
+    // So we must guard against that case.
+    size_t remaining = fp->block_length - fp->block_offset > 0
+        ? fp->block_length - fp->block_offset
+        : 0;
+
+    if (length < remaining) {
+        memcpy((uint8_t *)data,
+               (uint8_t *)fp->uncompressed_block + fp->block_offset,
+               length);
+        fp->block_offset += length;
+        fp->uncompressed_address += length;
+        return length;
+    } else {
+        return bgzf_read(fp, data, length);
+    }
+}
+
     /**
      * Write _length_ bytes from _data_ to the file.  If no I/O errors occur,
      * the complete _length_ bytes will be written (or queued for writing).
@@ -154,6 +180,24 @@ typedef struct BGZF BGZF;
      */
     HTSLIB_EXPORT
     ssize_t bgzf_write(BGZF *fp, const void *data, size_t length) HTS_RESULT_USED;
+
+/**
+ * bgzf_write optimised for small quantities, as a static inline
+ * See bgzf_write() normal function for return values.
+ */
+static inline
+ssize_t bgzf_write_small(BGZF *fp, const void *data, size_t length) {
+    if (fp->is_compressed
+        && (size_t) (BGZF_BLOCK_SIZE - fp->block_offset) > length) {
+        // Short cut the common and easy mode
+        memcpy((uint8_t *)fp->uncompressed_block + fp->block_offset,
+               data, length);
+        fp->block_offset += length;
+        return length;
+    } else {
+        return bgzf_write(fp, data, length);
+    }
+}
 
     /**
      * Write _length_ bytes from _data_ to the file, the index will be used to
@@ -292,7 +336,7 @@ typedef struct BGZF BGZF;
     /**
      * Read one byte from a BGZF file. It is faster than bgzf_read()
      * @param fp     BGZF file handler
-     * @return       byte read; -1 on end-of-file or error
+     * @return       byte read; -1 on end-of-file; <= -2 on error
      */
     HTSLIB_EXPORT
     int bgzf_getc(BGZF *fp);

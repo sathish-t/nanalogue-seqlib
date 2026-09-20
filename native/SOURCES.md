@@ -8,7 +8,7 @@ not exclusively MIT-licensed.
 
 | Source | Version / upstream release commit | License / notice |
 | --- | --- | --- |
-| [HTSlib](https://github.com/samtools/htslib) | 1.19.1, `6a7d33abc6cae840023868ccdd946d0d8759f259` | MIT and BSD notices: `vendor/htslib/LICENSE` and individual files |
+| [HTSlib](https://github.com/samtools/htslib) | 1.24, `4b705e4fada8ee2b6b15746f725ee8ac51631803` | MIT and BSD notices: `vendor/htslib/LICENSE` and individual files |
 | [htscodecs](https://github.com/samtools/htscodecs) | 1.6.0, `ffda7310c4b3292955561d6c3b1743cb82bfe26b` | BSD-3-Clause: `vendor/htslib/htscodecs/LICENSE.md` |
 | [zlib](https://github.com/madler/zlib) | 1.3.2, `da607da739fa6047df13e66a2af6b8bec7c2a498` | Zlib: `vendor/zlib/LICENSE` |
 | [bzip2](https://sourceware.org/git/bzip2.git) | 1.0.8, `6a8690fc8d26c815e798c588f796eabe9d684cf0` | bzip2-1.0.6: `vendor/bzip2/LICENSE` |
@@ -52,6 +52,8 @@ download SHA-256: `cf3a1f5f8fbe9ceda62cdf72e3eea215e6a60bc401f7b22e73b195cdd4c08
   Runtime CPU dispatch remains intact; baseline compilation is not AVX-512.
 * HTSlib configuration/version headers are generated in OUT_DIR. LZMA enables
   both `HAVE_LIBLZMA` and `HAVE_LZMA_H`, including on macOS. Plugins stay off.
+* The separately maintained htscodecs subtree remains at 1.6.0 rather than
+  HTSlib 1.24's upstream submodule revision (htscodecs 1.6.6).
 * OpenSSL uses portable C (`no-asm`), static built-in providers, no DSO/engine
   loading, and `/etc/ssl` as the default certificate directory. curl uses only
   our static OpenSSL/zlib; unrelated optional native libraries are disabled.

@@ -46,7 +46,7 @@ int show_headers = 1;
 int verbose = 0;
 int status = EXIT_SUCCESS;  /* Exit status from main */
 
-void error(const char *format, ...)
+void HTS_FORMAT(HTS_PRINTF_FMT, 1, 2) error(const char *format, ...)
 {
     int err = errno;
     va_list args;
@@ -250,7 +250,7 @@ int main(int argc, char **argv)
         case 1:
             printf(
 "htsfile (htslib) %s\n"
-"Copyright (C) 2024 Genome Research Ltd.\n",
+"Copyright (C) 2026 Genome Research Ltd.\n",
                    hts_version());
             exit(EXIT_SUCCESS);
             break;

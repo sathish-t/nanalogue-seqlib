@@ -1654,7 +1654,7 @@ pub const HTS_PATH_SEPARATOR_CHAR: u8 = 58u8;
 pub const HTS_PATH_SEPARATOR_STR: &[u8; 2] = b":\0";
 pub const HTS_RESIZE_CLEAR: u32 = 1;
 pub const HTS_IDX_DELIM: &[u8; 8] = b"##idx##\0";
-pub const HTS_VERSION: u32 = 101901;
+pub const HTS_VERSION: u32 = 102400;
 pub const HTS_FEATURE_CONFIGURE: u32 = 1;
 pub const HTS_FEATURE_PLUGINS: u32 = 2;
 pub const HTS_FEATURE_LIBCURL: u32 = 1024;
@@ -1708,6 +1708,11 @@ pub const BCF_VL_VAR: u32 = 1;
 pub const BCF_VL_A: u32 = 2;
 pub const BCF_VL_G: u32 = 3;
 pub const BCF_VL_R: u32 = 4;
+pub const BCF_VL_P: u32 = 5;
+pub const BCF_VL_LA: u32 = 6;
+pub const BCF_VL_LG: u32 = 7;
+pub const BCF_VL_LR: u32 = 8;
+pub const BCF_VL_M: u32 = 9;
 pub const BCF_DT_ID: u32 = 0;
 pub const BCF_DT_CTG: u32 = 1;
 pub const BCF_DT_SAMPLE: u32 = 2;
@@ -1790,6 +1795,7 @@ pub const BAM_FSECONDARY: u32 = 256;
 pub const BAM_FQCFAIL: u32 = 512;
 pub const BAM_FDUP: u32 = 1024;
 pub const BAM_FSUPPLEMENTARY: u32 = 2048;
+pub const BAM_MAX_QNAME_LEN: u32 = 254;
 pub const BAM_USER_OWNS_STRUCT: u32 = 1;
 pub const BAM_USER_OWNS_DATA: u32 = 2;
 pub const HTS_MOD_UNKNOWN: i32 = -1;
@@ -1814,6 +1820,7 @@ pub const TBX_MAX_SHIFT: u32 = 31;
 pub const TBX_GENERIC: u32 = 0;
 pub const TBX_SAM: u32 = 1;
 pub const TBX_VCF: u32 = 2;
+pub const TBX_GAF: u32 = 3;
 pub const TBX_UCSC: u32 = 65536;
 pub const COLLAPSE_NONE: u32 = 0;
 pub const COLLAPSE_SNPS: u32 = 1;
@@ -1828,6 +1835,7 @@ pub const BCF_SR_PAIR_SOME: u32 = 8;
 pub const BCF_SR_PAIR_SNP_REF: u32 = 16;
 pub const BCF_SR_PAIR_INDEL_REF: u32 = 32;
 pub const BCF_SR_PAIR_EXACT: u32 = 64;
+pub const BCF_SR_PAIR_ID: u32 = 128;
 pub const BCF_SR_PAIR_BOTH: u32 = 3;
 pub const BCF_SR_PAIR_BOTH_REF: u32 = 51;
 pub type wchar_t = ::std::os::raw::c_int;
@@ -8111,7 +8119,7 @@ unsafe extern "C" {
     pub fn kstrstr(
         str_: *const ::std::os::raw::c_char,
         pat: *const ::std::os::raw::c_char,
-        _prep: *mut *mut ::std::os::raw::c_int,
+        prep: *mut *mut ::std::os::raw::c_int,
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
@@ -8119,16 +8127,16 @@ unsafe extern "C" {
         str_: *const ::std::os::raw::c_char,
         pat: *const ::std::os::raw::c_char,
         n: ::std::os::raw::c_int,
-        _prep: *mut *mut ::std::os::raw::c_int,
+        prep: *mut *mut ::std::os::raw::c_int,
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
     pub fn kmemmem(
-        _str: *const ::std::os::raw::c_void,
+        str_: *const ::std::os::raw::c_void,
         n: ::std::os::raw::c_int,
-        _pat: *const ::std::os::raw::c_void,
+        pat: *const ::std::os::raw::c_void,
         m: ::std::os::raw::c_int,
-        _prep: *mut *mut ::std::os::raw::c_int,
+        prep: *mut *mut ::std::os::raw::c_int,
     ) -> *mut ::std::os::raw::c_void;
 }
 unsafe extern "C" {
@@ -8151,6 +8159,9 @@ unsafe extern "C" {
         fgets_fn: kgets_func,
         fp: *mut ::std::os::raw::c_void,
     ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn kfgetline(s: *mut kstring_t, fp: *mut FILE) -> ::std::os::raw::c_int;
 }
 pub type kgets_func2 = ::std::option::Option<
     unsafe extern "C" fn(
@@ -8641,6 +8652,8 @@ pub const hts_fmt_option_FASTQ_OPT_AUX: hts_fmt_option = 1001;
 pub const hts_fmt_option_FASTQ_OPT_RNUM: hts_fmt_option = 1002;
 pub const hts_fmt_option_FASTQ_OPT_BARCODE: hts_fmt_option = 1003;
 pub const hts_fmt_option_FASTQ_OPT_NAME2: hts_fmt_option = 1004;
+pub const hts_fmt_option_FASTQ_OPT_UMI: hts_fmt_option = 1005;
+pub const hts_fmt_option_FASTQ_OPT_UMI_REGEX: hts_fmt_option = 1006;
 pub type hts_fmt_option = ::std::os::raw::c_uint;
 pub const hts_profile_option_HTS_PROFILE_FAST: hts_profile_option = 0;
 pub const hts_profile_option_HTS_PROFILE_NORMAL: hts_profile_option = 1;
@@ -9516,6 +9529,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn hts_md5_destroy(ctx: *mut hts_md5_context);
+}
+unsafe extern "C" {
+    pub fn hts_crc32(crc: u32, buf: *const ::std::os::raw::c_void, len: usize) -> u32;
 }
 pub type uint16_u = u16;
 pub type uint32_u = u32;
@@ -10577,6 +10593,21 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
+    pub fn bcf_itr_querys1(
+        idx: *const hts_idx_t,
+        hdr: *mut bcf_hdr_t,
+        region: *const ::std::os::raw::c_char,
+    ) -> *mut hts_itr_t;
+}
+unsafe extern "C" {
+    pub fn bcf_itr_regarray(
+        idx: *const hts_idx_t,
+        hdr: *mut bcf_hdr_t,
+        regarray: *mut *mut ::std::os::raw::c_char,
+        regcount: ::std::os::raw::c_uint,
+    ) -> *mut hts_itr_t;
+}
+unsafe extern "C" {
     pub fn bcf_index_load2(
         fn_: *const ::std::os::raw::c_char,
         fnidx: *const ::std::os::raw::c_char,
@@ -10626,6 +10657,14 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub static mut bcf_float_missing: u32;
+}
+unsafe extern "C" {
+    pub fn bcf_format_gt_v2(
+        hdr: *const bcf_hdr_t,
+        fmt: *mut bcf_fmt_t,
+        isample: ::std::os::raw::c_int,
+        str_: *mut kstring_t,
+    ) -> ::std::os::raw::c_int;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -11780,6 +11819,16 @@ unsafe extern "C" {
         ntype: *mut ::std::os::raw::c_int,
     ) -> *mut ::std::os::raw::c_int;
 }
+unsafe extern "C" {
+    pub fn sam_hdr_set(
+        fp: *mut samFile,
+        h: *mut sam_hdr_t,
+        dup: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn sam_hdr_get(fp: *mut samFile) -> *mut sam_hdr_t;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct hFILE_backend {
@@ -12016,6 +12065,9 @@ unsafe extern "C" {
     ) -> *mut ::std::os::raw::c_char;
 }
 unsafe extern "C" {
+    pub fn khgetline(kstr: *mut kstring_t, fp: *mut hFILE) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn hpeek(fp: *mut hFILE, buffer: *mut ::std::os::raw::c_void, nbytes: usize) -> isize;
 }
 unsafe extern "C" {
@@ -12211,6 +12263,14 @@ unsafe extern "C" {
     pub fn cram_container_is_empty(fd: *mut cram_fd) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
+    pub fn cram_container_get_coords(
+        c: *mut cram_container,
+        refid: *mut ::std::os::raw::c_int,
+        start: *mut hts_pos_t,
+        span: *mut hts_pos_t,
+    );
+}
+unsafe extern "C" {
     pub fn cram_block_get_content_id(b: *mut cram_block) -> i32;
 }
 unsafe extern "C" {
@@ -12293,6 +12353,14 @@ unsafe extern "C" {
         in_: *mut cram_fd,
         out: *mut cram_fd,
         num_slice: i32,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn cram_filter_container(
+        in_: *mut cram_fd,
+        out: *mut cram_fd,
+        c: *mut cram_container,
+        ref_id: *mut ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
@@ -12468,6 +12536,34 @@ unsafe extern "C" {
 pub type SAM_hdr = sam_hdr_t;
 unsafe extern "C" {
     pub fn cram_get_refs(fd: *mut htsFile) -> *mut refs_t;
+}
+unsafe extern "C" {
+    pub fn cram_index_extents(
+        fd: *mut cram_fd,
+        refid: ::std::os::raw::c_int,
+        start: hts_pos_t,
+        end: hts_pos_t,
+        first: *mut off_t,
+        last: *mut off_t,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn cram_num_containers(fd: *mut cram_fd) -> i64;
+}
+unsafe extern "C" {
+    pub fn cram_num_containers_between(
+        fd: *mut cram_fd,
+        cstart: off_t,
+        cend: off_t,
+        first: *mut i64,
+        last: *mut i64,
+    ) -> i64;
+}
+unsafe extern "C" {
+    pub fn cram_container_num2offset(fd: *mut cram_fd, n: i64) -> off_t;
+}
+unsafe extern "C" {
+    pub fn cram_container_offset2num(fd: *mut cram_fd, pos: off_t) -> i64;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -13109,6 +13205,30 @@ unsafe extern "C" {
     pub static tbx_conf_vcf: tbx_conf_t;
 }
 unsafe extern "C" {
+    pub static tbx_conf_gaf: tbx_conf_t;
+}
+unsafe extern "C" {
+    pub fn tbx_itr_querys1(
+        tbx: *mut tbx_t,
+        region: *const ::std::os::raw::c_char,
+    ) -> *mut hts_itr_t;
+}
+unsafe extern "C" {
+    pub fn tbx_itr_regarray(
+        tbx: *mut tbx_t,
+        regarray: *mut *mut ::std::os::raw::c_char,
+        regcount: ::std::os::raw::c_uint,
+    ) -> *mut hts_itr_t;
+}
+unsafe extern "C" {
+    pub fn tbx_itr_next1(
+        htsfp: *mut htsFile,
+        tbx: *mut tbx_t,
+        iter: *mut hts_itr_t,
+        r: *mut ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
     pub fn tbx_name2id(tbx: *mut tbx_t, ss: *const ::std::os::raw::c_char)
         -> ::std::os::raw::c_int;
 }
@@ -13312,6 +13432,7 @@ const _: () = {
     ["Offset of field: bcf_sr_t::samples"][::std::mem::offset_of!(bcf_sr_t, samples) - 80usize];
     ["Offset of field: bcf_sr_t::n_smpl"][::std::mem::offset_of!(bcf_sr_t, n_smpl) - 88usize];
 };
+pub const bcf_sr_error_bcf_sr_ok: bcf_sr_error = 0;
 pub const bcf_sr_error_open_failed: bcf_sr_error = 0;
 pub const bcf_sr_error_not_bgzf: bcf_sr_error = 1;
 pub const bcf_sr_error_idx_load_failed: bcf_sr_error = 2;
@@ -13323,6 +13444,10 @@ pub const bcf_sr_error_no_memory: bcf_sr_error = 7;
 pub const bcf_sr_error_vcf_parse_error: bcf_sr_error = 8;
 pub const bcf_sr_error_bcf_read_error: bcf_sr_error = 9;
 pub const bcf_sr_error_noidx_error: bcf_sr_error = 10;
+pub const bcf_sr_error_bcf_sr_open_failed: bcf_sr_error = 11;
+pub const bcf_sr_error_bcf_sr_seek_error: bcf_sr_error = 12;
+pub const bcf_sr_error_bcf_sr_regions_error: bcf_sr_error = 13;
+pub const bcf_sr_error_bcf_sr_samples_error: bcf_sr_error = 14;
 pub type bcf_sr_error = ::std::os::raw::c_uint;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -13407,6 +13532,14 @@ unsafe extern "C" {
     pub fn bcf_sr_add_reader(
         readers: *mut bcf_srs_t,
         fname: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn bcf_sr_add_hreader(
+        readers: *mut bcf_srs_t,
+        file_ptr: *mut htsFile,
+        autoclose: ::std::os::raw::c_int,
+        idxname: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
@@ -13697,6 +13830,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn hts_tpool_size(p: *mut hts_tpool) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn hts_tpool_worker_id(pool: *mut hts_tpool) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn hts_tpool_dispatch(
