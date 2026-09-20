@@ -1,6 +1,6 @@
 /*  hts_internal.h -- internal functions; not part of the public API.
 
-    Copyright (C) 2015-2016, 2018-2020 Genome Research Ltd.
+    Copyright (C) 2015-2016, 2018-2020, 2025 Genome Research Ltd.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,6 +25,7 @@ DEALINGS IN THE SOFTWARE.  */
 
 #include <stddef.h>
 #include <ctype.h>
+#include <time.h>
 
 #include "htslib/hts.h"
 #include "textutils_internal.h"
@@ -48,6 +49,19 @@ struct hts_json_token {
 struct cram_fd;
 
 /*
+ * Adjust CSI index parameters to support max_len_in bases
+ *
+ * @param max_len_in         Maximum position to be indexed
+ * @param min_shift_[in,out] min_shift parameter
+ * @param n_lvls_[in,out]    n_lvls parameter
+ *
+ * Adjusts *n_lvls_ (preferred) or *min_shift_ so that the resulting values
+ * can be passed to hts_idx_init(, HTS_FMT_CSI, ...) in order to make an
+ * index that can store positions up to max_len_in bases.
+ */
+void hts_adjust_csi_settings(int64_t max_len_in, int *min_shift_, int *n_lvls_);
+
+/*
  * Check the existence of a local index file using part of the alignment file name.
  * The order is alignment.bam.csi, alignment.csi, alignment.bam.bai, alignment.bai
  * @param fn    - pointer to the file name
@@ -67,6 +81,11 @@ void hts_idx_amend_last(hts_idx_t *idx, uint64_t offset);
 
 int hts_idx_fmt(hts_idx_t *idx);
 
+// Internal interface to save on-the-fly indexes.  The index file handle
+// is kept open so hts_close() can close if after writing out the EOF
+// block for its own file.
+int hts_idx_save_but_not_close(hts_idx_t *idx, const char *fnidx, int fmt);
+
 // Construct a unique filename based on fname and open it.
 struct hFILE *hts_open_tmpfile(const char *fname, const char *mode, kstring_t *tmpname);
 
@@ -82,6 +101,9 @@ typedef struct hts_cram_idx_t {
     struct cram_fd *cram;
 } hts_cram_idx_t;
 
+// Determine whether the string's contents appear to be UTF-16-encoded text.
+// Returns 1 if they are, 2 if there is also a BOM, or 0 otherwise.
+int hts_is_utf16_text(const kstring_t *str);
 
 // Entry point to hFILE_multipart backend.
 struct hFILE *hopen_htsget_redirect(struct hFILE *hfile, const char *mode);
@@ -115,25 +137,13 @@ const char *hts_plugin_path(void);
  */
 int bgzf_idx_push(BGZF *fp, hts_idx_t *hidx, int tid, hts_pos_t beg, hts_pos_t end, uint64_t offset, int is_mapped);
 
-/*
- * bgzf analogue to hts_idx_amend_last.
- *
- * This is needed when multi-threading and writing indices on the fly.
- * At the point of writing a record we know the virtual offset for start
- * and end, but that end virtual offset may be the end of the current
- * block.  In standard indexing our end virtual offset becomes the start
- * of the next block.  Thus to ensure bit for bit compatibility we
- * detect this boundary case and fix it up here.
- */
-void bgzf_idx_amend_last(BGZF *fp, hts_idx_t *hidx, uint64_t offset);
-
 static inline int find_file_extension(const char *fn, char ext_out[static HTS_MAX_EXT_LEN])
 {
     const char *delim = fn ? strstr(fn, HTS_IDX_DELIM) : NULL, *ext;
     if (!fn) return -1;
     if (!delim) delim = fn + strlen(fn);
     for (ext = delim; ext > fn && *ext != '.' && *ext != '/'; --ext) {}
-    if (*ext == '.' &&
+    if (*ext == '.' && ext > fn &&
         ((delim - ext == 3 && ext[1] == 'g' && ext[2] == 'z') || // permit .sam.gz as a valid file extension
         (delim - ext == 4 && ext[1] == 'b' && ext[2] == 'g' && ext[3] == 'z'))) // permit .vcf.bgz as a valid file extension
     {
@@ -144,6 +154,46 @@ static inline int find_file_extension(const char *fn, char ext_out[static HTS_MA
     memcpy(ext_out, ext + 1, delim - ext - 1);
     ext_out[delim - ext - 1] = '\0';
     return 0;
+}
+
+static inline int hts_usleep(long long usec)
+{
+    struct timespec req = { usec / 1000000, (usec % 1000000) * 1000 };
+    return nanosleep(&req, NULL);
+}
+
+/*!
+  @abstract   Is SVLEN the reference length for a VCF ALT allele?
+  @param alt  ALT allele
+  @param size Length of @p alt; -1 if not known
+  @return     1 if yes; 0 if not.
+
+  This is used when reading VCF and in tabix to check if SVLEN should be taken
+  into account when working out the reference length.  It should if the
+  ALT allele is a symbolic one of type CNV, DEL, DUP or INV, plus
+  sub-types like <CNV:TR> or <DEL:ME>.
+
+  @p alt does not have to be NUL-terminated, but if not @p size should be
+  greater than of equal to zero.  If @p is less than zero, @p alt must be
+  NUL-terminated.
+*/
+
+static inline int svlen_on_ref_for_vcf_alt(const char *alt, int32_t size)
+{
+    size_t sz;
+    if (*alt != '<') // Check if ALT is symbolic
+        return 0;
+    sz = size >= 0 ? (size_t) size : strlen(alt);
+    if (sz < 5)      // Reject if not long enough
+        return 0;
+    if (alt[4] != '>' && alt[4] != ':')  // Reject if too long
+        return 0;
+    if (memcmp(alt, "<CNV", 4) != 0     // Copy-number variation
+        && memcmp(alt, "<DEL", 4) != 0  // Deletion
+        && memcmp(alt, "<DUP", 4) != 0  // Duplication
+        && memcmp(alt, "<INV", 4) != 0) // Inversion
+        return 0;
+    return alt[sz - 1] == '>' ? 1 : 0; // Check symbolic allele ends correctly
 }
 
 #ifdef __cplusplus

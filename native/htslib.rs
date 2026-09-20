@@ -1,4 +1,4 @@
-//! The HTSlib 1.19.1 source list, including its bundled CRAM codecs.
+//! The HTSlib 1.24 source list, including its bundled CRAM codecs.
 use std::{env, fs, path::Path, process::Command};
 
 const SOURCES: &[&str] = &[
@@ -21,6 +21,7 @@ const SOURCES: &[&str] = &[
     "region.c",
     "sam.c",
     "sam_mods.c",
+    "simd.c",
     "synced_bcf_reader.c",
     "vcf_sweep.c",
     "tbx.c",
@@ -66,7 +67,7 @@ pub fn build(out: &Path, compiler: &Path, archiver: &Path) {
         ("LZMA", "HAVE_LZMA_H", &[][..]),
         ("LIBDEFLATE", "HAVE_LIBDEFLATE", &[][..]),
         ("CURL", "HAVE_LIBCURL", &["hfile_libcurl.c"][..]),
-        ("S3", "ENABLE_S3", &["hfile_s3.c", "hfile_s3_write.c"][..]),
+        ("S3", "ENABLE_S3", &["hfile_s3.c"][..]),
         ("GCS", "ENABLE_GCS", &["hfile_gcs.c"][..]),
     ] {
         if env::var_os(format!("CARGO_FEATURE_{}", feature)).is_some() {
@@ -83,10 +84,10 @@ pub fn build(out: &Path, compiler: &Path, archiver: &Path) {
     fs::write(build.join("config.h"), config).unwrap();
     fs::write(
         build.join("version.h"),
-        "#define HTS_VERSION_TEXT \"1.19.1\"\n#define HTSCODECS_VERSION_TEXT \"1.6.0\"\n",
+        "#define HTS_VERSION_TEXT \"1.24\"\n#define HTSCODECS_VERSION_TEXT \"1.6.0\"\n",
     )
     .unwrap();
-    fs::write(build.join("config_vars.h"), "#define HTS_CC \"zig cc 0.14.1\"\n#define HTS_CPPFLAGS \"\"\n#define HTS_CFLAGS \"-O2 -fPIC -mcpu=baseline\"\n#define HTS_LDFLAGS \"\"\n#define HTS_LIBS \"vendored static libraries\"\n").unwrap();
+    fs::write(build.join("config_vars.h"), "#define HTS_CC \"zig cc 0.15.2\"\n#define HTS_CPPFLAGS \"\"\n#define HTS_CFLAGS \"-O2 -fPIC -mcpu=baseline\"\n#define HTS_LDFLAGS \"\"\n#define HTS_LIBS \"vendored static libraries\"\n").unwrap();
     sources.push(Path::new("native/wrapper.c").to_owned());
     let mut objects = Vec::new();
     for (i, file) in sources.iter().enumerate() {

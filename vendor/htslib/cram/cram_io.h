@@ -227,6 +227,12 @@ static inline int block_resize(cram_block *b, size_t len) {
     if (b->alloc > len)
         return 0;
 
+#ifdef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    // Removal of extra padding causes many more reallocs, but detects
+    // more buffer overruns.
+    return block_resize_exact(b, len?len:1);
+#endif
+
     size_t alloc = b->alloc+800;
     alloc = MAX(alloc + (alloc>>2), len);
     return block_resize_exact(b, alloc);
@@ -391,7 +397,7 @@ void refs_free(refs_t *r);
  * Returns reference on success;
  *         NULL on failure
  */
-char *cram_get_ref(cram_fd *fd, int id, int start, int end);
+char *cram_get_ref(cram_fd *fd, int id, hts_pos_t start, hts_pos_t end);
 void cram_ref_incr(refs_t *r, int id);
 void cram_ref_decr(refs_t *r, int id);
 /**@}*/
