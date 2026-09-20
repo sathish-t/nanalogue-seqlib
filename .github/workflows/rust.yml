@@ -51,6 +51,109 @@ jobs:
       - name: Lint with clippy
         run: RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -Dclippy::all -Dunused_imports
 
+  Downstream-Nanalogue:
+    name: Nanalogue (${{ matrix.branch }}, ${{ matrix.feature_name }})
+    needs: Formatting
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - branch: main
+            feature_name: default features
+            feature_args: ""
+          - branch: main
+            feature_name: all features
+            feature_args: --all-features
+          - branch: mod-bam-viewer
+            feature_name: default features
+            feature_args: ""
+          - branch: mod-bam-viewer
+            feature_name: all features
+            feature_args: --all-features
+
+    steps:
+      - name: Checkout nanalogue-seqlib
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Check downstream branch
+        id: downstream-branch
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          set +e
+          git ls-remote --exit-code --heads \
+            https://github.com/DNAReplicationLab/nanalogue.git \
+            "refs/heads/$BRANCH"
+          status=$?
+          set -e
+          if [[ "$status" -eq 0 ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$status" -eq 2 && "$BRANCH" == mod-bam-viewer ]]; then
+            echo "Optional branch $BRANCH does not exist; skipping"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not resolve required downstream branch $BRANCH" >&2
+            exit "$status"
+          fi
+
+      - name: Checkout Nanalogue
+        if: steps.downstream-branch.outputs.exists == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: DNAReplicationLab/nanalogue
+          ref: ${{ matrix.branch }}
+          path: downstream/nanalogue
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        if: steps.downstream-branch.outputs.exists == 'true'
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install native build tools
+        if: steps.downstream-branch.outputs.exists == 'true'
+        uses: ./.github/actions/native-tools
+
+      - name: Use this nanalogue-seqlib checkout
+        if: steps.downstream-branch.outputs.exists == 'true'
+        working-directory: downstream/nanalogue
+        run: |
+          cargo add rust-htslib --path "$GITHUB_WORKSPACE" \
+            --features libdeflate
+          cargo tree -i rust-htslib | tee /tmp/rust-htslib-tree.txt
+          grep -F "($GITHUB_WORKSPACE)" /tmp/rust-htslib-tree.txt
+
+      - name: Compile every target
+        if: steps.downstream-branch.outputs.exists == 'true'
+        working-directory: downstream/nanalogue
+        env:
+          FEATURE_ARGS: ${{ matrix.feature_args }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo build --all-targets "${feature_args[@]}"
+
+      - name: Run downstream tests
+        if: steps.downstream-branch.outputs.exists == 'true'
+        working-directory: downstream/nanalogue
+        env:
+          FEATURE_ARGS: ${{ matrix.feature_args }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo test "${feature_args[@]}" -- --test-threads=1
+          cargo test "${feature_args[@]}" -- \
+            --ignored --test-threads=1
+
   Testing:
     name: Coverage (${{ matrix.os }})
     needs: Formatting
