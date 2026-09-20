@@ -93,16 +93,23 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn builds_index_for_non_unicode_filenames() {
+    fn builds_index_for_native_non_ascii_filenames() {
         use std::os::unix::ffi::OsStringExt;
 
         let dir = tempfile::tempdir().unwrap();
+        // APFS rejects invalid UTF-8 before our API can see it. Exercise Unicode
+        // there, and retain the arbitrary-byte filesystem regression on Linux.
+        let (bam_name, index_name): (&[u8], &[u8]) = if cfg!(target_os = "macos") {
+            ("input-é.bam".as_bytes(), "output-ø.bai".as_bytes())
+        } else {
+            (b"input-\xFF.bam", b"output-\xFE.bai")
+        };
         let bam_path = dir
             .path()
-            .join(std::ffi::OsString::from_vec(b"input-\xFF.bam".to_vec()));
+            .join(std::ffi::OsString::from_vec(bam_name.to_vec()));
         let index_path = dir
             .path()
-            .join(std::ffi::OsString::from_vec(b"output-\xFE.bai".to_vec()));
+            .join(std::ffi::OsString::from_vec(index_name.to_vec()));
         std::fs::copy("test/test_index_build.bam", &bam_path).unwrap();
 
         build(&bam_path, Some(&index_path), Type::Bai, 1).unwrap();

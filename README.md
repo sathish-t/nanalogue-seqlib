@@ -14,9 +14,39 @@ git clone https://github.com/sathish-t/nanalogue-seqlib.git
 
 ## Requirements
 
-Install Rust, a C toolchain compatible with the `cc` crate, Clang/libclang for bindgen, and CMake for feature combinations that build compression dependencies from source. The `hts-sys` dependency builds HTSlib; this repository does not require an HTSlib submodule.
+Install Rust and **Zig 0.15.2**. Default/network-enabled builds also require
+CMake (3.18+), Make and Perl. On macOS, install the Apple command-line tools/SDK
+for native OS headers and final linking. The supported hosts are Linux and macOS; supported targets
+are x86_64 and ARM64 Linux GNU/musl and macOS.
 
-**Bindgen is mandatory in this fork**, including with `--no-default-features`. The `bindgen` Cargo feature remains as a compatibility alias, not an opt-in switch. Pre-built upstream bindings do not replace this build requirement.
+```sh
+bash native/install-zig.sh  # optional checksum-verified toolchain installer
+export PATH="$HOME/.local/bin:$PATH"
+cargo test --all-features
+```
+
+Set `ZIG` to an absolute executable path if Zig is not on PATH. All native C
+compilation and archive creation use Zig, including when cross-compiling.
+The final Rust executable still needs a linker for its target; cross-target
+users must configure Cargo's target linker separately.
+
+**HTSlib, htscodecs, zlib, bzip2, liblzma, libdeflate, curl and OpenSSL are
+copied into `vendor/` and linked statically.** No native `*-sys` crate, `cc`
+crate, build-time bindgen/libclang, pkg-config lookup, system installation of
+these libraries, submodule checkout or native-source download is used. There
+are no Rust build dependencies. Unrelated Rust dependencies still use Cargo.
+The `bindgen` and `static` features remain no-op compatibility aliases.
+
+See [native source provenance and licenses](native/SOURCES.md) for versions,
+upstream commits, input checksums, local patches and binding regeneration.
+The bindings are checked in per target ABI and checked against compiled C
+layouts by integration tests.
+
+HTTPS retains certificate and hostname verification. Certificates are runtime
+data: OpenSSL defaults to `/etc/ssl`, or set `CURL_CA_BUNDLE` to a CA bundle
+(HTSlib's explicit override). OpenSSL also supports `SSL_CERT_FILE` and
+`SSL_CERT_DIR`. No build-machine certificate path is auto-detected. Cloud
+credentials and CRAM reference sequences remain application/runtime inputs.
 
 ## Evaluate with Nanalogue
 
@@ -29,6 +59,14 @@ rust-htslib = { path = "../nanalogue-seqlib", features = ["libdeflate"] }
 
 Use the path to the checkout containing the changes you want to evaluate. A `[patch.crates-io]` entry alone will not override an exact `=1.0.0` dependency with this fork's `1.0.2`; replacing the dependency avoids that version mismatch.
 
+To evaluate the pushed vendoring branch instead, replace the dependency with:
+
+```toml
+rust-htslib = { git = "https://github.com/sathish-t/nanalogue-seqlib", branch = "vendoring", features = ["libdeflate"] }
+```
+
+For reproducibility, replace `branch` with `rev` and the full tested commit.
+
 From the Nanalogue checkout, verify resolution and compatibility:
 
 ```shell
@@ -40,14 +78,20 @@ The tree must show your local fork path. Keep the downstream manifest and lockfi
 
 ## Features and development
 
-Default features enable bzip2, lzma, and HTTP access through curl. If you do not need these capabilities, disable default features (bindgen still runs):
+Default features enable bzip2, lzma, and HTTP/HTTPS/FTP access through curl.
+If you do not need these capabilities, disable default features. This smaller
+build requires only Rust and Zig (plus a final Rust target linker), not
+CMake/Make/Perl:
 
 ```toml
 [dependencies]
 rust-htslib = { path = "../nanalogue-seqlib", default-features = false }
 ```
 
-The `s3` and `gcs` features enable the corresponding HTSlib remote-storage support; `libdeflate` enables libdeflate compression support.
+The `s3` and `gcs` features enable the corresponding HTSlib remote-storage support;
+`libdeflate` enables libdeflate compression support. Disabling bzip2 or lzma
+reduces CRAM codec compatibility. Runtime HTSlib plugins are disabled; enabled
+network handlers are compiled in.
 
 Run the fork's checks and generate API documentation locally:
 
@@ -78,5 +122,8 @@ For other contributors, see [here](https://github.com/rust-bio/rust-htslib/graph
 
 ## License
 
-Licensed under the MIT license https://opensource.org/licenses/MIT. This project may not be copied, modified, or distributed except according to those terms.
+The Rust wrapper is licensed under the MIT license https://opensource.org/licenses/MIT.
+Bundled native code retains its own licenses and notices; see
+[native/SOURCES.md](native/SOURCES.md). Redistributors must retain the applicable
+notices; the entire vendor tree is not exclusively MIT-licensed.
 Some test files are taken from https://github.com/samtools/htslib.

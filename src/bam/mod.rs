@@ -22,6 +22,7 @@ use url::Url;
 
 use crate::errors::{Error, Result};
 use crate::htslib;
+use crate::htslib as hts_sys;
 use crate::tpool::ThreadPool;
 use crate::utils::path_as_bytes;
 
@@ -263,7 +264,7 @@ pub trait Read: Sized {
     /// resulting in faster iteration:
     /// ```
     /// use rust_htslib::bam::{Read, Reader};
-    /// use hts_sys;
+    /// use rust_htslib::htslib as hts_sys;
     /// let mut cram = Reader::from_path("test/test_cram.cram").unwrap();
     /// cram.set_cram_options(hts_sys::hts_fmt_option_CRAM_OPT_REQUIRED_FIELDS,
     ///             hts_sys::sam_fields_SAM_RNAME | hts_sys::sam_fields_SAM_FLAG).unwrap();
@@ -1893,13 +1894,17 @@ CCCCCCCCCCCCCCCCCCC"[..],
 
     #[cfg(unix)]
     #[test]
-    fn reads_non_unicode_filename() {
+    fn reads_native_non_ascii_filename() {
         use std::os::unix::ffi::OsStringExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let path = dir
-            .path()
-            .join(std::ffi::OsString::from_vec(b"input-\xFF.bam".to_vec()));
+        // APFS requires valid UTF-8 names; Linux also permits arbitrary bytes.
+        let name: &[u8] = if cfg!(target_os = "macos") {
+            "input-é.bam".as_bytes()
+        } else {
+            b"input-\xFF.bam"
+        };
+        let path = dir.path().join(std::ffi::OsString::from_vec(name.to_vec()));
         fs::copy("test/test.bam", &path).unwrap();
 
         let record = Reader::from_path(&path)
