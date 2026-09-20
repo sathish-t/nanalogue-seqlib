@@ -8,15 +8,15 @@ not exclusively MIT-licensed.
 
 | Source | Version / upstream release commit | License / notice |
 | --- | --- | --- |
-| [HTSlib](https://github.com/samtools/htslib) | 1.24, `4b705e4fada8ee2b6b15746f725ee8ac51631803` | MIT and BSD notices: `vendor/htslib/LICENSE` and individual files |
-| [htscodecs](https://github.com/samtools/htscodecs) | 1.6.7, `b9fc194f772e45bb0a1f44b08cbf8697a1384bae` | BSD-3-Clause: `vendor/htslib/htscodecs/LICENSE.md` |
-| [zlib](https://github.com/madler/zlib) | 1.3.2, `da607da739fa6047df13e66a2af6b8bec7c2a498` | Zlib: `vendor/zlib/LICENSE` |
-| [bzip2](https://sourceware.org/git/bzip2.git) | 1.0.8, `6a8690fc8d26c815e798c588f796eabe9d684cf0` | bzip2-1.0.6: `vendor/bzip2/LICENSE` |
-| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.8.4, `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | Compiled liblzma code is 0BSD; see `vendor/xz/COPYING` and `vendor/xz/COPYING.0BSD`. Uncompiled supporting files also carry GPL/LGPL licenses; all supplied notices are retained. |
-| [libdeflate](https://github.com/ebiggers/libdeflate) | 1.26, `92e6a0db9fa848d742f9eb286c92afc60f2c3dda` | MIT: `vendor/libdeflate/COPYING` |
-| [curl](https://github.com/curl/curl) | 8.22.0, `01346829096c61b372692f6dc43ffa778c6caccd` | curl: `vendor/curl/COPYING`, plus `LICENSES/` |
-| [OpenSSL](https://github.com/openssl/openssl) | 3.6.4, `d3c1b1169b3569ff3069e5b399f47b2b28e03d79` | Apache-2.0: `vendor/openssl/LICENSE.txt` |
-| [hts-sys wrapper](https://github.com/rust-bio/hts-sys) | 2.2.1, `64f51cc9c649df98d4d85b49c3ce242efe4aa6e6` | MIT: `native/HTS-SYS-LICENSE` |
+| [HTSlib](https://github.com/samtools/htslib) | 1.24, `4b705e4fada8ee2b6b15746f725ee8ac51631803` | [MIT and BSD notices](../vendor/htslib/LICENSE) and file-local notices |
+| [htscodecs](https://github.com/samtools/htscodecs) | 1.6.7, `b9fc194f772e45bb0a1f44b08cbf8697a1384bae` | [BSD-3-Clause](../vendor/htslib/htscodecs/LICENSE.md) |
+| [zlib](https://github.com/madler/zlib) | 1.3.2, `da607da739fa6047df13e66a2af6b8bec7c2a498` | [Zlib](../vendor/zlib/LICENSE); retained contrib notices: [DotZLib](../vendor/zlib/contrib/dotzlib/LICENSE_1_0.txt), [Info-ZIP](../vendor/zlib/contrib/minizip/LICENSE.Info-Zip) |
+| [bzip2](https://sourceware.org/git/bzip2.git) | 1.0.8, `6a8690fc8d26c815e798c588f796eabe9d684cf0` | [bzip2-1.0.6](../vendor/bzip2/LICENSE) |
+| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.8.4, `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | Compiled liblzma code is [0BSD](../vendor/xz/COPYING.0BSD); see the [overview](../vendor/xz/COPYING). Uncompiled supporting files also retain [GPL-2.0](../vendor/xz/COPYING.GPLv2), [GPL-3.0](../vendor/xz/COPYING.GPLv3), and [LGPL-2.1](../vendor/xz/COPYING.LGPLv2.1) notices. |
+| [libdeflate](https://github.com/ebiggers/libdeflate) | 1.26, `92e6a0db9fa848d742f9eb286c92afc60f2c3dda` | [MIT](../vendor/libdeflate/COPYING) |
+| [curl](https://github.com/curl/curl) | 8.22.0, `01346829096c61b372692f6dc43ffa778c6caccd` | [curl](../vendor/curl/COPYING), plus retained [curl](../vendor/curl/LICENSES/curl.txt), [ISC](../vendor/curl/LICENSES/ISC.txt), and [BSD-4-Clause-UC](../vendor/curl/LICENSES/BSD-4-Clause-UC.txt) notices |
+| [OpenSSL](https://github.com/openssl/openssl) | 3.6.4, `d3c1b1169b3569ff3069e5b399f47b2b28e03d79` | [Apache-2.0](../vendor/openssl/LICENSE.txt); retained [Text::Template notice](../vendor/openssl/external/perl/Text-Template-1.56/LICENSE) |
+| [hts-sys wrapper](https://github.com/rust-bio/hts-sys) | 2.2.1, `64f51cc9c649df98d4d85b49c3ce242efe4aa6e6` | [MIT](HTS-SYS-LICENSE) |
 
 Release commits identify upstream baselines; the copied crate distributions
 can omit upstream files or include generated files. XZ is copied from its

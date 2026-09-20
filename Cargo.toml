@@ -1,5 +1,9 @@
 [package]
-authors = ["Christopher Schröder <christopher.schroeder@tu-dortmund.de>", "Johannes Köster <johannes.koester@tu-dortmund.de>"]
+authors = [
+    "Sathish Thiyagarajan <mailboxofsat@gmail.com>",
+    "Christopher Schröder <christopher.schroeder@tu-dortmund.de>",
+    "Johannes Köster <johannes.koester@tu-dortmund.de>",
+]
 description = "Experimental rust-htslib fork for evaluating SAM/BAM/CRAM support in Nanalogue."
 edition = "2018"
 include = ["src/**/*", "native/*.rs", "native/*.c", "native/*.h", "native/*.md", "native/*LICENSE", "native/*.sh", "native/bindings/*.rs", "vendor/**/*", "build.rs", "LICENSE.md", "README.md", "CHANGELOG.md"]
