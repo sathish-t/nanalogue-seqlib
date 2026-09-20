@@ -79,7 +79,8 @@ jobs:
         run: |
           set -x
           cargo install cargo-tarpaulin
-          cargo tarpaulin --all-features --tests --doc --out Lcov -- --test-threads 1
+          # Compile-fail tests invoke Cargo and rebuild the vendored native stack.
+          cargo tarpaulin --timeout 300 --all-features --tests --doc --out Lcov -- --test-threads 1
 
       - name: Upload coverage
         uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
