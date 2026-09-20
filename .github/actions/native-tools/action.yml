@@ -7,7 +7,9 @@ runs:
       run: |
         if [[ "$RUNNER_OS" == Linux ]]; then
           sudo apt-get update
-          sudo apt-get install --yes cmake make minisign perl
+          sudo apt-get install --yes cmake make perl
+          bash native/install-minisign.sh
+          export PATH="$HOME/.local/bin:$PATH"
         else
           command -v cmake >/dev/null || brew install cmake
           command -v minisign >/dev/null || brew install minisign
