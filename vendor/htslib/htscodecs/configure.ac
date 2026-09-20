@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(htscodecs, 1.6.0)
+AC_INIT(htscodecs, 1.6.7)
 
 # Some functions benefit from -O3 optimisation, so if the user didn't
 # explicitly set any compiler flags, we'll plump for O3.
@@ -61,7 +61,7 @@ AM_EXTRA_RECURSIVE_TARGETS([fuzz])
 #       libhtscodecs.so.1.1.0
 
 VERS_CURRENT=3
-VERS_REVISION=5
+VERS_REVISION=12
 VERS_AGE=1
 AC_SUBST(VERS_CURRENT)
 AC_SUBST(VERS_REVISION)
@@ -119,6 +119,9 @@ AS_IF([test "$ax_cv_builtin_prefetch" = "yes"],
         [AC_DEFINE(HAVE_BUILTIN_PREFETCH, 1,
            [Define to 1 if you have a __builtin_prefetch])],
 	[])
+
+dnl Check is cpuid works, needed by rANS_static4x16pr.c.
+AC_CHECK_DECLS([__get_cpuid_max, __cpuid_count], [], [], [[#include <cpuid.h>]])
 
 dnl AC_CHECK_LIB([lzma], [lzma_easy_buffer_encode], [
 dnl 	LIBS="-llzma $LIBS"
@@ -185,7 +188,9 @@ HTS_CHECK_COMPILE_FLAGS_NEEDED([avx512f], [-mavx512f -mpopcnt], [AC_LANG_PROGRAM
 	  #ifdef __x86_64__
 	  __m512i a = _mm512_set1_epi32(1);
 	  __m512i b = _mm512_add_epi32(a, a);
-	  return _mm_popcnt_u32(*((char *) &b));
+          __m256i c = _mm512_castsi512_si256(b);
+	  __m256i d = _mm512_extracti64x4_epi64(a, 1);
+	  return _mm_popcnt_u32(*((char *) &c)) + (*(char *) &d);
 	  #endif
 	]])], [
         MAVX512="$flags_needed"
