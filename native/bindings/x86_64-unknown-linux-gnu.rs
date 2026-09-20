@@ -148,11 +148,11 @@ pub struct __BindgenComplex<T> {
 }
 pub const __llvm__: u32 = 1;
 pub const __clang__: u32 = 1;
-pub const __clang_major__: u32 = 19;
+pub const __clang_major__: u32 = 20;
 pub const __clang_minor__: u32 = 1;
-pub const __clang_patchlevel__: u32 = 7;
+pub const __clang_patchlevel__: u32 = 2;
 pub const __clang_version__: &[u8; 91] =
-    b"19.1.7 (https://github.com/ziglang/zig-bootstrap de1b01a8c1dddf75a560123ac1c2ab182b4830da)\0";
+    b"20.1.2 (https://github.com/ziglang/zig-bootstrap 7ef74e656cf8ddbd6bf891a8475892aa1afa6891)\0";
 pub const __GNUC__: u32 = 4;
 pub const __GNUC_MINOR__: u32 = 2;
 pub const __GNUC_PATCHLEVEL__: u32 = 1;
@@ -184,7 +184,7 @@ pub const __FPCLASS_POSSUBNORMAL: u32 = 128;
 pub const __FPCLASS_POSNORMAL: u32 = 256;
 pub const __FPCLASS_POSINF: u32 = 512;
 pub const __PRAGMA_REDEFINE_EXTNAME: u32 = 1;
-pub const __VERSION__ : & [u8 ; 97] = b"Clang 19.1.7 (https://github.com/ziglang/zig-bootstrap de1b01a8c1dddf75a560123ac1c2ab182b4830da)\0" ;
+pub const __VERSION__ : & [u8 ; 97] = b"Clang 20.1.2 (https://github.com/ziglang/zig-bootstrap 7ef74e656cf8ddbd6bf891a8475892aa1afa6891)\0" ;
 pub const __OBJC_BOOL_IS_BOOL: u32 = 0;
 pub const __CONSTANT_CFSTRINGS__: u32 = 1;
 pub const __clang_literal_encoding__: &[u8; 6] = b"UTF-8\0";
@@ -197,7 +197,7 @@ pub const __LITTLE_ENDIAN__: u32 = 1;
 pub const _LP64: u32 = 1;
 pub const __LP64__: u32 = 1;
 pub const __CHAR_BIT__: u32 = 8;
-pub const __BOOL_WIDTH__: u32 = 8;
+pub const __BOOL_WIDTH__: u32 = 1;
 pub const __SHRT_WIDTH__: u32 = 16;
 pub const __INT_WIDTH__: u32 = 32;
 pub const __LONG_WIDTH__: u32 = 64;
@@ -475,8 +475,7 @@ pub const __STDC_UTF_32__: u32 = 1;
 pub const __STDC_EMBED_NOT_FOUND__: u32 = 0;
 pub const __STDC_EMBED_FOUND__: u32 = 1;
 pub const __STDC_EMBED_EMPTY__: u32 = 2;
-pub const _DEBUG: u32 = 1;
-pub const __GLIBC_MINOR__: u32 = 28;
+pub const __GLIBC_MINOR__: u32 = 31;
 pub const __GCC_HAVE_DWARF2_CFI_ASM: u32 = 1;
 pub const _STDINT_H: u32 = 1;
 pub const _FEATURES_H: u32 = 1;
@@ -2888,7 +2887,9 @@ pub struct _IO_FILE {
     pub _freeres_buf: *mut ::std::os::raw::c_void,
     pub _prevchain: *mut *mut _IO_FILE,
     pub _mode: ::std::os::raw::c_int,
-    pub _unused2: [::std::os::raw::c_char; 20usize],
+    pub _unused3: ::std::os::raw::c_int,
+    pub _total_written: __uint64_t,
+    pub _unused2: [::std::os::raw::c_char; 8usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -2942,7 +2943,10 @@ const _: () = {
     ["Offset of field: _IO_FILE::_prevchain"]
         [::std::mem::offset_of!(_IO_FILE, _prevchain) - 184usize];
     ["Offset of field: _IO_FILE::_mode"][::std::mem::offset_of!(_IO_FILE, _mode) - 192usize];
-    ["Offset of field: _IO_FILE::_unused2"][::std::mem::offset_of!(_IO_FILE, _unused2) - 196usize];
+    ["Offset of field: _IO_FILE::_unused3"][::std::mem::offset_of!(_IO_FILE, _unused3) - 196usize];
+    ["Offset of field: _IO_FILE::_total_written"]
+        [::std::mem::offset_of!(_IO_FILE, _total_written) - 200usize];
+    ["Offset of field: _IO_FILE::_unused2"][::std::mem::offset_of!(_IO_FILE, _unused2) - 208usize];
 };
 impl _IO_FILE {
     #[inline]
