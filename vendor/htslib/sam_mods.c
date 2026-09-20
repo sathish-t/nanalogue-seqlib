@@ -1,6 +1,6 @@
 /*  sam_mods.c -- Base modification handling in SAM and BAM.
 
-    Copyright (C) 2020-2023 Genome Research Ltd.
+    Copyright (C) 2020-2025 Genome Research Ltd.
 
     Author: James Bonfield <jkb@sanger.ac.uk>
 
@@ -24,6 +24,7 @@ DEALINGS IN THE SOFTWARE.  */
 
 #define HTS_BUILDING_LIBRARY // Enables HTSLIB_EXPORT, see htslib/hts_defs.h
 #include <config.h>
+#include <assert.h>
 
 #include "htslib/sam.h"
 #include "textutils_internal.h"
@@ -245,7 +246,7 @@ int bam_parse_basemod2(const bam1_t *b, hts_base_mod_state *state,
     }
 
     uint8_t *mi = bam_aux_get(b, "MN");
-    if (mi && bam_aux2i(mi) != b->core.l_qseq) {
+    if (mi && bam_aux2i(mi) != b->core.l_qseq && b->core.l_qseq) {
         // bam_aux2i with set errno = EINVAL and return 0 if the tag
         // isn't integer, but 0 will be a seq-length mismatch anyway so
         // triggers an error here too.
@@ -271,6 +272,7 @@ int bam_parse_basemod2(const bam1_t *b, hts_base_mod_state *state,
     char *cp = (char *)mm+1;
     int mod_num = 0;
     int implicit = 1;
+    int failed = 0;
     while (*cp) {
         for (; *cp; cp++) {
             // cp should be [ACGTNU][+-]([a-zA-Z]+|[0-9]+)[.?]?(,\d+)*;
@@ -294,7 +296,12 @@ int bam_parse_basemod2(const bam1_t *b, hts_base_mod_state *state,
             char *cp_end = NULL;
             int chebi = 0;
             if (isdigit_c(*cp)) {
-                chebi = strtol(cp, &cp_end, 10);
+                chebi = (int)hts_str2uint(cp, &cp_end, 31, &failed);
+                if (cp_end == cp || failed) {
+                    hts_log_error("%s: malformed MM tag (invalid ChEBI code)",
+                                  bam_get_qname(b));
+                    return -1;
+                }
                 cp = cp_end;
                 ms = cp-1;
             } else {
@@ -340,8 +347,8 @@ int bam_parse_basemod2(const bam1_t *b, hts_base_mod_state *state,
                     if (*cp == 0 || *cp == ';')
                         break;
 
-                    delta = strtol(cp, &cp_end, 10);
-                    if (cp_end == cp) {
+                    delta = (long)hts_str2uint(cp, &cp_end, 31, &failed);
+                    if (cp_end == cp || failed) {
                         hts_log_error("%s: Hit end of MM tag. Missing "
                                       "semicolon?", bam_get_qname(b));
                         return -1;
@@ -353,13 +360,16 @@ int bam_parse_basemod2(const bam1_t *b, hts_base_mod_state *state,
                 }
                 delta = freq[seqi_rc[btype]] - total_seq; // remainder
             } else {
-                delta = *cp == ','
-                    ? strtol(cp+1, &cp_end, 10)
-                    : 0;
-                if (!cp_end) {
-                    // empty list
+                if (*cp == ',') {
+                    delta = (long)hts_str2uint(cp+1, &cp_end, 31, &failed);
+                    if (cp_end == cp+1 || failed) {
+                        hts_log_error("%s: Failed to parse integer from MM tag",
+                                      bam_get_qname(b));
+                        return -1;
+                    }
+                } else {
                     delta = INT_MAX;
-                    cp_end = cp+1;
+                    cp_end = cp;
                 }
             }
             // Now delta is first in list or computed remainder,
@@ -378,7 +388,7 @@ int bam_parse_basemod2(const bam1_t *b, hts_base_mod_state *state,
                 }
                 state->MMcount  [mod_num] = delta;
                 if (b->core.flag & BAM_FREVERSE) {
-                    state->MM   [mod_num] = cp+1;
+                    state->MM   [mod_num] = me+1;
                     state->MMend[mod_num] = cp_end;
                     state->ML   [mod_num] = ml ? ml+n +(ndelta-1)*stride: NULL;
                 } else {
@@ -426,6 +436,10 @@ int bam_parse_basemod2(const bam1_t *b, hts_base_mod_state *state,
             }
         }
     }
+    if (ml && ml != ml_end) {
+        hts_log_error("%s: Too many entries in ML tag", bam_get_qname(b));
+        return -1;
+    }
 
     state->nmods = mod_num;
 
@@ -447,13 +461,9 @@ int bam_parse_basemod(const bam1_t *b, hts_base_mod_state *state) {
  */
 int bam_mods_at_next_pos(const bam1_t *b, hts_base_mod_state *state,
                          hts_base_mod *mods, int n_mods) {
-    if (b->core.flag & BAM_FREVERSE) {
-        if (state->seq_pos < 0)
-            return -1;
-    } else {
-        if (state->seq_pos >= b->core.l_qseq)
-            return -1;
-    }
+
+    if (state->seq_pos >= b->core.l_qseq)
+        return 0;
 
     int i, j, n = 0;
     unsigned char base = bam_seqi(bam_get_seq(b), state->seq_pos);
@@ -493,22 +503,34 @@ int bam_mods_at_next_pos(const bam1_t *b, hts_base_mod_state *state,
                 ? -state->MLstride[i]
                 : +state->MLstride[i];
 
+        int failed = 0;
         if (b->core.flag & BAM_FREVERSE) {
             // process MM list backwards
             char *cp;
+            char *tmp;
+
+            if (state->MMend[i]-1 < state->MM[i]) {
+                // Should be impossible to hit if coding is correct
+                hts_log_error("Assert failed while processing base modification states");
+                return -1;
+            }
             for (cp = state->MMend[i]-1; cp != state->MM[i]; cp--)
                 if (*cp == ',')
                     break;
             state->MMend[i] = cp;
             if (cp != state->MM[i])
-                state->MMcount[i] = strtol(cp+1, NULL, 10);
+                state->MMcount[i] = (int)hts_str2uint(cp + 1, &tmp, 31, &failed);
             else
                 state->MMcount[i] = INT_MAX;
         } else {
             if (*state->MM[i] == ',')
-                state->MMcount[i] = strtol(state->MM[i]+1, &state->MM[i], 10);
+                state->MMcount[i] = (int)hts_str2uint(state->MM[i] + 1, &state->MM[i], 31, &failed);
             else
                 state->MMcount[i] = INT_MAX;
+        }
+        if (failed) {
+            hts_log_error("%s: Error parsing unsigned integer from MM tag", bam_get_qname(b));
+            return -1;
         }
 
         // Multiple mods at the same coords.
@@ -544,28 +566,20 @@ int bam_mods_at_next_pos(const bam1_t *b, hts_base_mod_state *state,
  */
 int bam_next_basemod(const bam1_t *b, hts_base_mod_state *state,
                      hts_base_mod *mods, int n_mods, int *pos) {
-    if (state->seq_pos >= b->core.l_qseq)
-        return 0;
-
     // Look through state->MMcount arrays to see when the next lowest is
     // per base type;
     int next[16], freq[16] = {0}, i;
-    memset(next, 0x7f, 16*sizeof(*next));
+    memset(next, 0x7f, 16*sizeof(*next)); // approx max => no next value
     const int unchecked = state->flags & HTS_MOD_REPORT_UNCHECKED;
-    if (b->core.flag & BAM_FREVERSE) {
-        for (i = 0; i < state->nmods; i++) {
-            if (unchecked && !state->implicit[i])
-                next[seqi_rc[state->canonical[i]]] = 1;
-            else if (next[seqi_rc[state->canonical[i]]] > state->MMcount[i])
-                next[seqi_rc[state->canonical[i]]] = state->MMcount[i];
-        }
-    } else {
-        for (i = 0; i < state->nmods; i++) {
-            if (unchecked && !state->implicit[i])
-                next[state->canonical[i]] = 0;
-            else if (next[state->canonical[i]] > state->MMcount[i])
-                next[state->canonical[i]] = state->MMcount[i];
-       }
+
+    for (i = 0; i < state->nmods; i++) {
+        int base = state->canonical[i];
+        if (b->core.flag & BAM_FREVERSE)
+            base = seqi_rc[base];
+        if (unchecked && !state->implicit[i])
+            next[base] = 0;
+        else if (next[base] > state->MMcount[i])
+            next[base] = state->MMcount[i];
     }
 
     // Now step through the sequence counting off base types.
@@ -579,24 +593,30 @@ int bam_next_basemod(const bam1_t *b, hts_base_mod_state *state,
     }
     *pos = state->seq_pos = i;
 
-    if (i >= b->core.l_qseq) {
-        // Check for more MM elements than bases present.
-        for (i = 0; i < state->nmods; i++) {
-            if (!(b->core.flag & BAM_FREVERSE) &&
-                state->MMcount[i] < 0x7f000000) {
-                hts_log_warning("MM tag refers to bases beyond sequence length");
-                return -1;
-            }
-        }
-        return 0;
-    }
-
     if (b->core.flag & BAM_FREVERSE) {
         for (i = 0; i < state->nmods; i++)
             state->MMcount[i] -= freq[seqi_rc[state->canonical[i]]];
     } else {
         for (i = 0; i < state->nmods; i++)
             state->MMcount[i] -= freq[state->canonical[i]];
+    }
+
+    if (b->core.l_qseq && state->seq_pos >= b->core.l_qseq) {
+        if (!(b->core.flag & BAM_FREVERSE)) {
+            // Spots +ve orientation run-overs.
+            // The -ve orientation is spotted in bam_parse_basemod2
+            int i;
+            for (i = 0; i < state->nmods; i++) {
+                // Check if any remaining items in MM after hitting the end
+                // of the sequence.
+                if (state->MMcount[i] < 0x7f000000 ||
+                    (*state->MM[i]!=0 && *state->MM[i]!=';')) {
+                    hts_log_warning("MM tag refers to bases beyond sequence length");
+                    return -1;
+                }
+            }
+        }
+        return 0;
     }
 
     int r = bam_mods_at_next_pos(b, state, mods, n_mods);

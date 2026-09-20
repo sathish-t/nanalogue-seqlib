@@ -1,6 +1,6 @@
 /*  faidx.c -- FASTA and FASTQ random access.
 
-    Copyright (C) 2008, 2009, 2013-2020, 2022 Genome Research Ltd.
+    Copyright (C) 2008, 2009, 2013-2020, 2022, 2024, 2026 Genome Research Ltd.
     Portions copyright (C) 2011 Broad Institute.
 
     Author: Heng Li <lh3@sanger.ac.uk>
@@ -39,16 +39,43 @@ DEALINGS IN THE SOFTWARE.  */
 #include "htslib/bgzf.h"
 #include "htslib/faidx.h"
 #include "htslib/hfile.h"
+#include "htslib/hts_alloc.h"
 #include "htslib/khash.h"
 #include "htslib/kstring.h"
 #include "hts_internal.h"
 
+// Faster isgraph; assumes ASCII
+static inline int isgraph_(unsigned char c) {
+    return c > ' ' && c <= '~';
+}
+
+#ifdef isgraph
+#  undef isgraph
+#endif
+#define isgraph isgraph_
+
+// An optimised bgzf_getc.
+// We could consider moving this to bgzf.h, but our own code uses it here only.
+static inline int bgzf_getc_(BGZF *fp) {
+    if (fp->block_offset+1 < fp->block_length) {
+        int c = ((unsigned char*)fp->uncompressed_block)[fp->block_offset++];
+        fp->uncompressed_address++;
+        return c;
+    }
+
+    return bgzf_getc(fp);
+}
+#define bgzf_getc bgzf_getc_
+
 typedef struct {
     int id; // faidx_t->name[id] is for this struct.
-    uint32_t line_len, line_blen;
-    uint64_t len;
-    uint64_t seq_offset;
-    uint64_t qual_offset;
+    uint32_t line_extra;  // Bytes to skip at the end of each line
+                          // Usually 1 for \n or 2 for \r\n ending
+    uint64_t line_blen;   // Number of bases (or quality values) on each line
+                          // Total line length = line_blen + line_extra
+    uint64_t len;         // Length of entire sequence
+    uint64_t seq_offset;  // File offset to start of sequence
+    uint64_t qual_offset; // File offset to start of quality values (if fastq)
 } faidx1_t;
 KHASH_MAP_INIT_STR(s, faidx1_t)
 
@@ -67,10 +94,24 @@ static int fai_name2id(void *v, const char *ref)
     return k == kh_end(fai->hash) ? -1 : kh_val(fai->hash, k).id;
 }
 
-static inline int fai_insert_index(faidx_t *idx, const char *name, uint64_t len, uint32_t line_len, uint32_t line_blen, uint64_t seq_offset, uint64_t qual_offset)
+static inline int fai_insert_index(faidx_t *idx, const char *name, uint64_t len, uint64_t line_len, uint64_t line_blen, uint64_t seq_offset, uint64_t qual_offset)
 {
     if (!name) {
-        hts_log_error("Malformed line");
+        hts_log_error("Malformed line: no name");
+        return -1;
+    }
+    if (line_len > HTS_POS_MAX || line_blen > HTS_POS_MAX) {
+        hts_log_error("Malformed line: length out of bounds");
+        return -1;
+    }
+    if (line_len < line_blen) {
+        hts_log_error("Malformed line: width (%"PRIu64") less than base count (%"PRIu64")",
+                      line_len, line_blen);
+        return -1;
+    }
+    if (line_len - line_blen > UINT32_MAX) {
+        hts_log_error("Malformed line: difference between width (%"PRIu64") and base count (%"PRIu64") too large",
+                      line_len, line_blen);
         return -1;
     }
 
@@ -88,7 +129,7 @@ static inline int fai_insert_index(faidx_t *idx, const char *name, uint64_t len,
     if (idx->n == idx->m) {
         char **tmp;
         idx->m = idx->m? idx->m<<1 : 16;
-        if (!(tmp = (char**)realloc(idx->name, sizeof(char*) * idx->m))) {
+        if (!(tmp = hts_realloc_p(idx->name, sizeof(char*), idx->m))) {
             hts_log_error("Out of memory");
             return -1;
         }
@@ -97,7 +138,7 @@ static inline int fai_insert_index(faidx_t *idx, const char *name, uint64_t len,
     v->id = idx->n;
     idx->name[idx->n++] = name_key;
     v->len = len;
-    v->line_len = line_len;
+    v->line_extra = (uint32_t) (line_len - line_blen);
     v->line_blen = line_blen;
     v->seq_offset = seq_offset;
     v->qual_offset = qual_offset;
@@ -190,7 +231,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
                 kputsn("", 0, &name);
 
                 if (c < 0) {
-                    hts_log_error("The last entry '%s' has no sequence", name.s);
+                    hts_log_error("The last entry '%s' has no sequence at line %d", name.s, line_num);
                     goto fail;
                 }
 
@@ -247,7 +288,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
                         state = SEQ_END;
 
                 } else if (line_len < ll) {
-                    hts_log_error("Different line length in sequence '%s'", name.s);
+                    hts_log_error("Different line length in sequence '%s' at line %d", name.s, line_num);
                     goto fail;
                 }
 
@@ -269,7 +310,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
             case IN_QUAL:
                 if (c == '\n') {
                     if (!read_done) {
-                        hts_log_error("Inlined empty line is not allowed in quality of sequence '%s'", name.s);
+                        hts_log_error("Inlined empty line is not allowed in quality of sequence '%s' at line %d", name.s, line_num);
                         goto fail;
                     }
 
@@ -312,6 +353,7 @@ static faidx_t *fai_build_core(BGZF *bgzf) {
         if (fai_insert_index(idx, name.s, seq_len, line_len, char_len, seq_offset, qual_offset) != 0)
             goto fail;
     } else {
+        hts_log_error("File truncated at line %d", line_num);
         goto fail;
     }
 
@@ -338,12 +380,13 @@ static int fai_save(const faidx_t *fai, hFILE *fp) {
 
         if (fai->format == FAI_FASTA) {
             snprintf(buf, sizeof(buf),
-                 "\t%"PRIu64"\t%"PRIu64"\t%"PRIu32"\t%"PRIu32"\n",
-                 x.len, x.seq_offset, x.line_blen, x.line_len);
+                 "\t%"PRIu64"\t%"PRIu64"\t%"PRIu64"\t%"PRIu64"\n",
+                 x.len, x.seq_offset, x.line_blen, x.line_blen + x.line_extra);
         } else {
             snprintf(buf, sizeof(buf),
-                 "\t%"PRIu64"\t%"PRIu64"\t%"PRIu32"\t%"PRIu32"\t%"PRIu64"\n",
-                 x.len, x.seq_offset, x.line_blen, x.line_len, x.qual_offset);
+                 "\t%"PRIu64"\t%"PRIu64"\t%"PRIu64"\t%"PRIu64"\t%"PRIu64"\n",
+                     x.len, x.seq_offset, x.line_blen,
+                     x.line_blen + x.line_extra, x.qual_offset);
         }
 
         if (hputs(fai->name[i], fp) != 0) return -1;
@@ -369,10 +412,11 @@ static faidx_t *fai_read(hFILE *fp, const char *fname, int format)
     if (!buf) goto fail;
 
     while ((l = hgetln(buf, 0x10000, fp)) > 0) {
-        uint32_t line_len, line_blen, n;
+        uint64_t line_len, line_blen;
         uint64_t len;
         uint64_t seq_offset;
         uint64_t qual_offset = 0;
+        int n;
 
         for (p = buf; *p && !isspace_c(*p); ++p);
 
@@ -381,14 +425,14 @@ static faidx_t *fai_read(hFILE *fp, const char *fname, int format)
         }
 
         if (format == FAI_FASTA) {
-            n = sscanf(p, "%"SCNu64"%"SCNu64"%"SCNu32"%"SCNu32, &len, &seq_offset, &line_blen, &line_len);
+            n = sscanf(p, "%"SCNu64"%"SCNu64"%"SCNu64"%"SCNu64, &len, &seq_offset, &line_blen, &line_len);
 
             if (n != 4) {
                 hts_log_error("Could not understand FASTA index %s line %zd", fname, lnum);
                 goto fail;
             }
         } else {
-            n = sscanf(p, "%"SCNu64"%"SCNu64"%"SCNu32"%"SCNu32"%"SCNu64, &len, &seq_offset, &line_blen, &line_len, &qual_offset);
+            n = sscanf(p, "%"SCNu64"%"SCNu64"%"SCNu64"%"SCNu64"%"SCNu64, &len, &seq_offset, &line_blen, &line_len, &qual_offset);
 
             if (n != 5) {
                 if (n == 4) {
@@ -691,9 +735,8 @@ faidx_t *fai_load_format(const char *fn, enum fai_format_options format) {
 
 static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
                           uint64_t offset, hts_pos_t beg, hts_pos_t end, hts_pos_t *len) {
-    char *s;
-    size_t l;
-    int c = 0;
+    char *buffer, *s;
+    ssize_t nread, remaining, firstline_len, firstline_blen;
     int ret;
 
     if ((uint64_t) end - (uint64_t) beg >= SIZE_MAX - 2) {
@@ -703,14 +746,16 @@ static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
     }
 
     if (val->line_blen <= 0) {
-        hts_log_error("Invalid line length in index: %d", val->line_blen);
+        hts_log_error("Invalid line length in index: %"PRIu64, val->line_blen);
         *len = -1;
         return NULL;
     }
 
+    uint64_t line_len = val->line_blen + val->line_extra;
+
     ret = bgzf_useek(fai->bgzf,
                      offset
-                     + beg / val->line_blen * val->line_len
+                     + beg / val->line_blen * line_len
                      + beg % val->line_blen, SEEK_SET);
 
     if (ret < 0) {
@@ -719,26 +764,57 @@ static char *fai_retrieve(const faidx_t *fai, const faidx1_t *val,
         return NULL;
     }
 
-    l = 0;
-    s = (char*)malloc((size_t) end - beg + 2);
-    if (!s) {
+    // Over-allocate so there is extra space for one end-of-line sequence
+    buffer = hts_malloc(hts_add_sat3(end - beg, line_len - val->line_blen, 1));
+    if (!buffer) {
         *len = -1;
         return NULL;
     }
 
-    while ( l < end - beg && (c=bgzf_getc(fai->bgzf))>=0 )
-        if (isgraph(c)) s[l++] = c;
-    if (c < 0) {
-        hts_log_error("Failed to retrieve block: %s",
-            c == -1 ? "unexpected end of file" : "error reading file");
-        free(s);
-        *len = -1;
-        return NULL;
+    remaining = *len = end - beg;
+    firstline_blen = val->line_blen - beg % val->line_blen;
+
+    // Special case when the entire interval requested is within a single FASTA/Q line
+    if (remaining <= firstline_blen) {
+        nread = bgzf_read_small(fai->bgzf, buffer, remaining);
+        if (nread < remaining) goto error;
+        buffer[nread] = '\0';
+        return buffer;
     }
 
-    s[l] = '\0';
-    *len = l;
-    return s;
+    s = buffer;
+    firstline_len = line_len - beg % val->line_blen;
+
+    // Read the (partial) first line and its line terminator, but increment  s  past the
+    // line contents only, so the terminator characters will be overwritten by the next line.
+    nread = bgzf_read_small(fai->bgzf, s, firstline_len);
+    if (nread < firstline_len) goto error;
+    s += firstline_blen;
+    remaining -= firstline_blen;
+
+    // Similarly read complete lines and their line terminator characters, but overwrite the latter.
+    while (remaining > val->line_blen) {
+        nread = bgzf_read_small(fai->bgzf, s, line_len);
+        if (nread < (ssize_t) line_len) goto error;
+        s += val->line_blen;
+        remaining -= val->line_blen;
+    }
+
+    if (remaining > 0) {
+        nread = bgzf_read_small(fai->bgzf, s, remaining);
+        if (nread < remaining) goto error;
+        s += remaining;
+    }
+
+    *s = '\0';
+    return buffer;
+
+error:
+    hts_log_error("Failed to retrieve block: %s",
+                  (nread == 0)? "unexpected end of file" : "error reading file");
+    free(buffer);
+    *len = -1;
+    return NULL;
 }
 
 static int fai_get_val(const faidx_t *fai, const char *str,
@@ -773,9 +849,10 @@ static int fai_get_val(const faidx_t *fai, const char *str,
 }
 
 /*
- *  The internal still has line_blen as uint32_t, but our references
- *  can be longer, so for future proofing we use hts_pos_t.  We also needed
- *  a signed value so we can return negatives as an error.
+ *  Returns hts_pos_t for historic reasons (line_blen was uint32_t,
+ *  but this function returned a wider value in case it was expanded
+ *  which has now happened).  It also needs to return a negative value
+ *  on error.
  */
 hts_pos_t fai_line_length(const faidx_t *fai, const char *str)
 {
@@ -786,7 +863,9 @@ hts_pos_t fai_line_length(const faidx_t *fai, const char *str)
     if (fai_get_val(fai, str, &len, &val, &beg, &end))
         return -1;
     else
-        return val.line_blen;
+        return (val.line_blen <= HTS_POS_MAX
+                ? (hts_pos_t) val.line_blen
+                : (hts_pos_t) -1);
 }
 
 char *fai_fetch64(const faidx_t *fai, const char *str, hts_pos_t *len)
@@ -968,7 +1047,7 @@ const char *fai_parse_region(const faidx_t *fai, const char *s,
                              int *tid, hts_pos_t *beg, hts_pos_t *end,
                              int flags)
 {
-    return hts_parse_region(s, tid, beg, end, (hts_name2id_f)fai_name2id, (void *)fai, flags);
+    return hts_parse_region(s, tid, beg, end, fai_name2id, (void *)fai, flags);
 }
 
 void fai_set_cache_size(faidx_t *fai, int cache_size) {
