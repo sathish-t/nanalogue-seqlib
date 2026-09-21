@@ -47,6 +47,9 @@ layout; curl's source, build files, documentation and license notices remain.
 
 ## Local build choices and patches
 
+* `build.zig` builds zlib, bzip2, liblzma, libdeflate, htscodecs and HTSlib in
+  ReleaseSafe mode. OpenSSL retains its upstream Configure/Make pipeline and
+  curl retains its CMake pipeline; both use the pinned Zig compiler wrappers.
 * Classic zlib replaces zlib-ng's compatibility implementation. No formats or
   zlib ABI entry points used by HTSlib are removed.
 * `vendor/xz/config.h` originated in lzma-sys's portable configuration and is

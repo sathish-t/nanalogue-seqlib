@@ -1,15 +1,16 @@
-#[path = "native/compression.rs"]
-mod compression;
-#[path = "native/htslib.rs"]
-mod htslib;
 #[path = "native/network.rs"]
 mod network;
 
-use std::{env, fs, os::unix::fs::PermissionsExt, path::PathBuf, process::Command};
+use std::{
+    env, fs,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn main() {
     let target = env::var("TARGET").unwrap();
-    let zig_target = match target.as_str() {
+    let mut zig_target = match target.as_str() {
         "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
         "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
         "x86_64-unknown-linux-musl" => "x86_64-linux-musl",
@@ -17,7 +18,8 @@ fn main() {
         "x86_64-apple-darwin" => "x86_64-macos",
         "aarch64-apple-darwin" => "aarch64-macos",
         _ => panic!("unsupported vendored HTSlib target: {}", target),
-    };
+    }
+    .to_owned();
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".into());
     let version = Command::new(&zig)
         .arg("version")
@@ -51,10 +53,11 @@ fn main() {
         });
         // Keep Zig, CMake and Rust on the same minimum macOS version.
         env::set_var("MACOSX_DEPLOYMENT_TARGET", &deployment);
+        zig_target = format!("{}.{}", zig_target, deployment);
         cc = format!(
             "{} cc -target {} -mcpu=baseline",
             quote(&zig),
-            quote(&format!("{}.{}", zig_target, deployment))
+            quote(&zig_target)
         );
         let sdk = env::var("SDKROOT").unwrap_or_else(|_| {
             let output = Command::new("xcrun")
@@ -84,9 +87,10 @@ fn main() {
         out.join("bindings.rs"),
     )
     .expect("missing checked-in bindings for supported target");
-    compression::build(&out, &target, &compiler, &archiver);
+    let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    run_zig(&root, &out, &zig, &zig_target, "compression");
     network::build(&out, &target, &compiler, &archiver);
-    htslib::build(&out, &compiler, &archiver);
+    run_zig(&root, &out, &zig, &zig_target, "htslib");
     println!(
         "cargo:rustc-link-search=native={}/native/lib",
         out.display()
@@ -123,16 +127,46 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=SDKROOT");
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
-    for file in [
-        "compression.rs",
-        "network.rs",
-        "htslib.rs",
-        "wrapper.c",
-        "wrapper.h",
-    ] {
+    for file in ["network.rs", "wrapper.c", "wrapper.h"] {
         println!("cargo:rerun-if-changed=native/{}", file);
     }
     println!("cargo:rerun-if-changed=native/bindings/{}.rs", target);
     println!("cargo:rerun-if-changed=vendor");
+    println!("cargo:rerun-if-changed=build.zig");
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+fn run_zig(root: &Path, out: &Path, zig: &str, target: &str, step: &str) {
+    let mut command = Command::new(zig);
+    command
+        .current_dir(root)
+        .arg("build")
+        .arg(step)
+        .arg("--prefix")
+        .arg(out.join("native"))
+        .arg("--cache-dir")
+        .arg(out.join("zig-cache"))
+        .arg("--global-cache-dir")
+        .arg(out.join("zig-global-cache"))
+        .arg(format!(
+            "-j{}",
+            env::var("NUM_JOBS").unwrap_or_else(|_| "1".into())
+        ))
+        .arg(format!("-Dtarget={target}"))
+        .arg("-Dcpu=baseline");
+    for feature in ["bzip2", "lzma", "libdeflate", "curl", "s3", "gcs"] {
+        command.arg(format!(
+            "-D{feature}={}",
+            env::var_os(format!("CARGO_FEATURE_{}", feature.to_uppercase())).is_some()
+        ));
+    }
+    let status = command
+        .status()
+        .unwrap_or_else(|error| panic!("failed to execute Zig {} build: {}", step, error));
+    assert!(
+        status.success(),
+        "Zig {} build failed with {}",
+        step,
+        status
+    );
 }
