@@ -85,13 +85,16 @@ jobs:
           BRANCH: ${{ matrix.branch }}
         run: |
           set +e
-          git ls-remote --exit-code --heads \
+          remote_ref="$(git ls-remote --exit-code --heads \
             https://github.com/DNAReplicationLab/nanalogue.git \
-            "refs/heads/$BRANCH"
+            "refs/heads/$BRANCH")"
           status=$?
           set -e
           if [[ "$status" -eq 0 ]]; then
+            commit="${remote_ref%%$'\t'*}"
             echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "commit=$commit" >> "$GITHUB_OUTPUT"
+            echo "Using $BRANCH at $commit"
           elif [[ "$status" -eq 2 && "$BRANCH" == mod-bam-viewer ]]; then
             echo "Optional branch $BRANCH does not exist; skipping"
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -105,7 +108,8 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           repository: DNAReplicationLab/nanalogue
-          ref: ${{ matrix.branch }}
+          # Pin the checkout to the branch head resolved immediately above.
+          ref: ${{ steps.downstream-branch.outputs.commit }}
           path: downstream/nanalogue
           persist-credentials: false
 
