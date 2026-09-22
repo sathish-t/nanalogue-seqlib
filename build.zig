@@ -307,7 +307,10 @@ fn addHtslib(
         .files = htslib_sources,
         .flags = &.{ "-fPIC", "-Wno-deprecated-declarations" },
     });
-    if (curl) addCSource(module, b, "vendor/htslib/hfile_libcurl.c");
+    if (curl) {
+        addCSource(module, b, "vendor/htslib/hfile_curl_ca.c");
+        addCSource(module, b, "vendor/htslib/hfile_libcurl.c");
+    }
     if (s3) addCSource(module, b, "vendor/htslib/hfile_s3.c");
     if (gcs) addCSource(module, b, "vendor/htslib/hfile_gcs.c");
     addCSource(module, b, "native/wrapper.c");

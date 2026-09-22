@@ -65,6 +65,12 @@ layout; curl's source, build files, documentation and license notices remain.
 * OpenSSL uses portable C (`no-asm`), static built-in providers, no DSO/engine
   loading, and `/etc/ssl` as the default certificate directory. curl uses only
   our static OpenSSL/zlib; unrelated optional native libraries are disabled.
+* On macOS, curl uses Apple SecTrust unless a CA file, directory or blob is
+  explicitly selected. On Linux, the local `hfile_curl_ca` helper chooses a
+  readable conventional system CA bundle at runtime for HTSlib, S3 and HTTPS
+  proxy handles, following the `openssl-probe` 0.2.1 Linux candidate order.
+  `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and `SSL_CERT_DIR` keep precedence, and no
+  process environment variable is modified.
 * The original wrapper includes now point into `vendor/htslib`; its C ABI
   size/offset table supports `tests/native_stack.rs`.
 

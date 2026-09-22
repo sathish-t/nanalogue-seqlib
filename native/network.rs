@@ -154,6 +154,9 @@ pub fn build(out: &Path, target: &str, compiler: &Path, archiver: &Path) {
             "-DCURL_DISABLE_LDAP=ON",
             "-DCURL_DISABLE_LDAPS=ON",
         ]);
+    if target.contains("apple") {
+        cmake.arg("-DUSE_APPLE_SECTRUST=ON");
+    }
     run(&mut cmake, "configure curl");
 
     let mut install_curl = Command::new("cmake");

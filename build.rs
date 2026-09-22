@@ -121,6 +121,8 @@ fn main() {
     if target.contains("apple") && env::var_os("CARGO_FEATURE_CURL").is_some() {
         println!("cargo:rustc-link-lib=framework=SystemConfiguration");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
+        println!("cargo:rustc-link-lib=framework=CoreServices");
+        println!("cargo:rustc-link-lib=framework=Security");
     }
     println!("cargo:include={}/native/include", out.display());
     println!("cargo:root={}/native", out.display());

@@ -35,6 +35,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <errno.h>
 #include <pthread.h>
 
+#include "hfile_curl_ca.h"
 #include "hfile_internal.h"
 #ifdef ENABLE_PLUGINS
 #include "version.h"
@@ -1536,7 +1537,8 @@ static int abort_upload(hFILE_s3 *fp) {
 
     curl_easy_reset(fp->curl);
 
-    err = curl_easy_setopt(fp->curl, CURLOPT_CUSTOMREQUEST, http_request);
+    err = hts_curl_configure_ca(fp->curl);
+    err |= curl_easy_setopt(fp->curl, CURLOPT_CUSTOMREQUEST, http_request);
     err |= curl_easy_setopt(fp->curl, CURLOPT_USERAGENT, curl.useragent.s);
     err |= curl_easy_setopt(fp->curl, CURLOPT_URL, url.s);
     err |= curl_easy_setopt(fp->curl, CURLOPT_VERBOSE, fp->verbose);
@@ -1605,7 +1607,8 @@ static int complete_upload(hFILE_s3 *fp, kstring_t *resp) {
 
     curl_easy_reset(fp->curl);
 
-    err = curl_easy_setopt(fp->curl, CURLOPT_POST, 1L);
+    err = hts_curl_configure_ca(fp->curl);
+    err |= curl_easy_setopt(fp->curl, CURLOPT_POST, 1L);
 
     err |= curl_easy_setopt(fp->curl, CURLOPT_POSTFIELDS, fp->completion_message.s);
     err |= curl_easy_setopt(fp->curl, CURLOPT_POSTFIELDSIZE, (long) fp->completion_message.l);
@@ -1689,7 +1692,8 @@ static int upload_part(hFILE_s3 *fp, kstring_t *resp) {
 
     curl_easy_reset(fp->curl);
 
-    err = curl_easy_setopt(fp->curl, CURLOPT_UPLOAD, 1L);
+    err = hts_curl_configure_ca(fp->curl);
+    err |= curl_easy_setopt(fp->curl, CURLOPT_UPLOAD, 1L);
     err |= curl_easy_setopt(fp->curl, CURLOPT_READFUNCTION, upload_callback);
     err |= curl_easy_setopt(fp->curl, CURLOPT_READDATA, fp);
     err |= curl_easy_setopt(fp->curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)fp->buffer.l);
@@ -2029,7 +2033,8 @@ static int get_part(hFILE_s3 *fp, kstring_t *resp) {
 
     curl_easy_reset(fp->curl);
 
-    err = curl_easy_setopt(fp->curl, CURLOPT_URL, fp->url.s);
+    err = hts_curl_configure_ca(fp->curl);
+    err |= curl_easy_setopt(fp->curl, CURLOPT_URL, fp->url.s);
     err |= curl_easy_setopt(fp->curl, CURLOPT_WRITEFUNCTION, recv_callback);
     err |= curl_easy_setopt(fp->curl, CURLOPT_WRITEDATA, (void *)fp);
     err |= curl_easy_setopt(fp->curl, CURLOPT_USERAGENT, curl.useragent.s);
@@ -2629,4 +2634,3 @@ int PLUGIN_GLOBAL(hfile_plugin_init,_s3)(struct hFILE_plugin *self) {
 
     return 0;
 }
-

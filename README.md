@@ -46,11 +46,15 @@ upstream commits, input checksums, local patches and binding regeneration.
 The bindings are checked in per target ABI and checked against compiled C
 layouts by integration tests.
 
-HTTPS retains certificate and hostname verification. Certificates are runtime
-data: OpenSSL defaults to `/etc/ssl`, or set `CURL_CA_BUNDLE` to a CA bundle
-(HTSlib's explicit override). OpenSSL also supports `SSL_CERT_FILE` and
-`SSL_CERT_DIR`. No build-machine certificate path is auto-detected. Cloud
-credentials and CRAM reference sequences remain application/runtime inputs.
+HTTPS retains certificate and hostname verification without changing the
+process environment. `CURL_CA_BUNDLE` is HTSlib's explicit per-request
+override; OpenSSL's `SSL_CERT_FILE` and `SSL_CERT_DIR` overrides are also
+preserved. Without an override, macOS uses Apple SecTrust and Linux selects the
+first readable CA bundle from conventional distribution and OpenSSL locations
+at runtime. OpenSSL's `/etc/ssl` defaults remain the final fallback. The Linux
+bundle also applies to HTTPS proxies and S3 requests. No build-machine
+certificate path is auto-detected; cloud credentials and CRAM reference
+sequences remain application/runtime inputs.
 
 ## Evaluate with Nanalogue
 

@@ -245,6 +245,15 @@ static char *ssl_easy_steal(struct Curl_easy *data, enum dupstring id)
   return CURL_UNCONST(CURL_EASY_STR(data, id));
 }
 
+#if defined(USE_APPLE_SECTRUST) && defined(USE_OPENSSL)
+static bool openssl_ca_env_override(void)
+{
+  return getenv("SSL_CERT_FILE") || getenv("SSL_CERT_DIR");
+}
+#else
+#define openssl_ca_env_override() FALSE
+#endif
+
 CURLcode Curl_ssl_easy_config_complete(struct Curl_easy *data,
                                        struct Curl_peer *origin)
 {
@@ -257,7 +266,8 @@ CURLcode Curl_ssl_easy_config_complete(struct Curl_easy *data,
 
   if(Curl_ssl_backend() != CURLSSLBACKEND_SCHANNEL) {
 #if defined(USE_APPLE_SECTRUST) || defined(CURL_CA_NATIVE)
-    if(!sslc->custom_capath && !sslc->custom_cafile && !sslc->custom_cablob)
+    if(!sslc->custom_capath && !sslc->custom_cafile && !sslc->custom_cablob &&
+       !openssl_ca_env_override())
       sslc->primary.native_ca_store = TRUE;
 #endif
 #ifdef CURL_CA_PATH
@@ -318,7 +328,8 @@ CURLcode Curl_ssl_easy_config_complete(struct Curl_easy *data,
 
   if(Curl_ssl_backend() != CURLSSLBACKEND_SCHANNEL) {
 #if defined(USE_APPLE_SECTRUST) || defined(CURL_CA_NATIVE)
-    if(!sslc->custom_capath && !sslc->custom_cafile && !sslc->custom_cablob)
+    if(!sslc->custom_capath && !sslc->custom_cafile && !sslc->custom_cablob &&
+       !openssl_ca_env_override())
       sslc->primary.native_ca_store = TRUE;
 #endif
 #ifdef CURL_CA_PATH

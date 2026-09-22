@@ -37,6 +37,7 @@ DEALINGS IN THE SOFTWARE.  */
 #include <assert.h>
 #include <time.h>
 
+#include "hfile_curl_ca.h"
 #include "hfile_internal.h"
 #ifdef ENABLE_PLUGINS
 #include "version.h"
@@ -1398,12 +1399,7 @@ libcurl_open(const char *url, const char *modes, http_headers *headers)
 
     err |= curl_easy_setopt(fp->easy, CURLOPT_SHARE, curl.share);
     err |= curl_easy_setopt(fp->easy, CURLOPT_URL, url);
-    {
-        char* env_curl_ca_bundle = getenv("CURL_CA_BUNDLE");
-        if (env_curl_ca_bundle) {
-            err |= curl_easy_setopt(fp->easy, CURLOPT_CAINFO, env_curl_ca_bundle);
-        }
-    }
+    err |= hts_curl_configure_ca(fp->easy);
     err |= curl_easy_setopt(fp->easy, CURLOPT_USERAGENT, curl.useragent.s);
     if (curl.low_speed_limit > 0 && curl.low_speed_time > 0) {
         err |= curl_easy_setopt(fp->easy, CURLOPT_LOW_SPEED_LIMIT,

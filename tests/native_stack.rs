@@ -94,6 +94,24 @@ fn vendored_curl_is_8_22() {
         ssl_version_num: c_long,
         libz_version: *const c_char,
         protocols: *const *const c_char,
+        ares: *const c_char,
+        ares_num: c_int,
+        libidn: *const c_char,
+        iconv_ver_num: c_int,
+        libssh_version: *const c_char,
+        brotli_ver_num: c_uint,
+        brotli_version: *const c_char,
+        nghttp2_ver_num: c_uint,
+        nghttp2_version: *const c_char,
+        quic_version: *const c_char,
+        cainfo: *const c_char,
+        capath: *const c_char,
+        zstd_ver_num: c_uint,
+        zstd_version: *const c_char,
+        hyper_version: *const c_char,
+        gsasl_version: *const c_char,
+        feature_names: *const *const c_char,
+        rtmp_version: *const c_char,
     }
 
     extern "C" {
@@ -118,6 +136,19 @@ fn vendored_curl_is_8_22() {
         }
     }
     assert_eq!(protocols, ["ftp", "ftps", "http", "https"]);
+
+    let mut features = Vec::new();
+    let mut current = info.feature_names;
+    unsafe {
+        while !(*current).is_null() {
+            features.push(CStr::from_ptr(*current).to_str().unwrap());
+            current = current.add(1);
+        }
+    }
+    assert_eq!(
+        features.contains(&"AppleSecTrust"),
+        cfg!(target_os = "macos")
+    );
 
     const SSL_AND_ZLIB: c_int = (1 << 2) | (1 << 3);
     const DISABLED_DEPENDENCIES: c_int =
