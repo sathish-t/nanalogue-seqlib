@@ -98,7 +98,7 @@ struct hts_md5_context {
  */
 #if defined(HTS_LITTLE_ENDIAN) && HTS_ALLOW_UNALIGNED != 0
 #define SET(n) \
-	(*(hts_md5_u32plus *)&ptr[(n) * 4])
+	((hts_md5_u32plus)le_to_u32(&ptr[(n) * 4]))
 #define GET(n) \
 	SET(n)
 #else

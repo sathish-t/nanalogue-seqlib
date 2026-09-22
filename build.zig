@@ -296,8 +296,6 @@ fn addHtslib(
     const module = b.createModule(.{
         .target = target,
         .optimize = .ReleaseSafe,
-        // HTSlib's threaded CRAM encoder trips Zig's C sanitizer traps.
-        .sanitize_c = .off,
         .link_libc = true,
         .pic = true,
     });
