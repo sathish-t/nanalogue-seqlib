@@ -52,26 +52,47 @@ jobs:
         run: RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -Dclippy::all -Dunused_imports
 
   Downstream-Nanalogue:
-    name: Nanalogue (${{ matrix.branch }}, ${{ matrix.feature_name }})
+    name: Nanalogue (${{ matrix.platform }}, ${{ matrix.branch }}, ${{ matrix.feature }} features)
     needs: Formatting
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
+        branch: [main, mod-bam-viewer]
+        feature: [default, all]
+        platform:
+          - linux-gnu-x86_64
+          - linux-gnu-arm64
+          - linux-musl-x86_64
+          - linux-musl-arm64
+          - macos-intel
+          - macos-apple-silicon
         include:
-          - branch: main
-            feature_name: default features
-            feature_args: ""
-          - branch: main
-            feature_name: all features
-            feature_args: --all-features
-          - branch: mod-bam-viewer
-            feature_name: default features
-            feature_args: ""
-          - branch: mod-bam-viewer
-            feature_name: all features
-            feature_args: --all-features
+          - platform: linux-gnu-x86_64
+            os: ubuntu-22.04
+            rust_target: ""
+            musl: false
+          - platform: linux-gnu-arm64
+            os: ubuntu-22.04-arm
+            rust_target: ""
+            musl: false
+          - platform: linux-musl-x86_64
+            os: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-musl
+            musl: true
+          - platform: linux-musl-arm64
+            os: ubuntu-22.04-arm
+            rust_target: aarch64-unknown-linux-musl
+            musl: true
+          - platform: macos-intel
+            os: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            musl: false
+          - platform: macos-apple-silicon
+            os: macos-15
+            rust_target: aarch64-apple-darwin
+            musl: false
 
     steps:
       - name: Checkout nanalogue-seqlib
@@ -115,13 +136,30 @@ jobs:
 
       - name: Install stable toolchain
         if: steps.downstream-branch.outputs.exists == 'true'
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
         run: |
-          rustup toolchain install stable --profile minimal
+          if [[ -n "$RUST_TARGET" ]]; then
+            rustup toolchain install stable --profile minimal --target "$RUST_TARGET"
+          else
+            rustup toolchain install stable --profile minimal
+          fi
           rustup default stable
 
       - name: Install native build tools
         if: steps.downstream-branch.outputs.exists == 'true'
         uses: $/.github/actions/native-tools
+
+      - name: Configure native MUSL toolchain
+        if: steps.downstream-branch.outputs.exists == 'true' && matrix.musl
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          test "$(uname -m)" = "${RUST_TARGET%%-*}"
+          target_env="${RUST_TARGET//-/_}"
+          # build.rs compiles C with Zig's MUSL headers/libraries. Rust supplies
+          # its own MUSL CRT to the native GCC linker.
+          printf 'CARGO_TARGET_%s_LINKER=gcc\n' "${target_env^^}" >> "$GITHUB_ENV"
 
       - name: Use this nanalogue-seqlib checkout
         if: steps.downstream-branch.outputs.exists == 'true'
@@ -136,26 +174,36 @@ jobs:
         if: steps.downstream-branch.outputs.exists == 'true'
         working-directory: downstream/nanalogue
         env:
-          FEATURE_ARGS: ${{ matrix.feature_args }}
+          FEATURE_ARGS: ${{ matrix.feature == 'all' && '--all-features' || '' }}
+          RUST_TARGET: ${{ matrix.rust_target }}
         run: |
           feature_args=()
           if [[ -n "$FEATURE_ARGS" ]]; then
             feature_args+=("$FEATURE_ARGS")
           fi
-          cargo build --all-targets "${feature_args[@]}"
+          target_args=()
+          if [[ -n "$RUST_TARGET" ]]; then
+            target_args+=(--target "$RUST_TARGET")
+          fi
+          cargo build --all-targets "${target_args[@]}" "${feature_args[@]}"
 
       - name: Run downstream tests
         if: steps.downstream-branch.outputs.exists == 'true'
         working-directory: downstream/nanalogue
         env:
-          FEATURE_ARGS: ${{ matrix.feature_args }}
+          FEATURE_ARGS: ${{ matrix.feature == 'all' && '--all-features' || '' }}
+          RUST_TARGET: ${{ matrix.rust_target }}
         run: |
           feature_args=()
           if [[ -n "$FEATURE_ARGS" ]]; then
             feature_args+=("$FEATURE_ARGS")
           fi
-          cargo test "${feature_args[@]}" -- --test-threads=1
-          cargo test "${feature_args[@]}" -- \
+          target_args=()
+          if [[ -n "$RUST_TARGET" ]]; then
+            target_args+=(--target "$RUST_TARGET")
+          fi
+          cargo test "${target_args[@]}" "${feature_args[@]}" -- --test-threads=1
+          cargo test "${target_args[@]}" "${feature_args[@]}" -- \
             --ignored --test-threads=1
 
   Testing:
@@ -197,13 +245,13 @@ jobs:
           path-to-lcov: ./lcov.info
 
   Testing-Features:
-    name: Feature tests (${{ matrix.os }}, ${{ matrix.args }})
+    name: Feature tests (${{ matrix.os }}, ${{ matrix.feature }})
     needs: Formatting
     strategy:
       matrix:
         # Native GNU/Linux builds; MUSL is tested separately below.
         os: [ubuntu-22.04, ubuntu-22.04-arm]
-        args: [--no-default-features, --all-features]
+        feature: [no-default, default, all]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -225,18 +273,22 @@ jobs:
 
       - name: Test
         env:
-          FEATURE_ARGS: ${{ matrix.args }}
+          FEATURE_ARGS: ${{ matrix.feature == 'no-default' && '--no-default-features' || matrix.feature == 'all' && '--all-features' || '' }}
         run: |
-          cargo test "$FEATURE_ARGS"
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo test "${feature_args[@]}"
 
   Testing-MUSL:
-    name: MUSL tests (${{ matrix.rust_target }}, ${{ matrix.args }})
+    name: MUSL tests (${{ matrix.rust_target }}, ${{ matrix.feature }})
     needs: Formatting
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, ubuntu-22.04-arm]
-        args: [--no-default-features, --all-features]
+        feature: [no-default, default, all]
         include:
           - os: ubuntu-22.04
             rust_target: x86_64-unknown-linux-musl
@@ -272,24 +324,33 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: musl-${{ matrix.rust_target }}-${{ matrix.args }}
+          key: musl-${{ matrix.rust_target }}-${{ matrix.feature }}
 
       - name: Run MUSL tests
         env:
-          FEATURE_ARGS: ${{ matrix.args }}
-        run: cargo test --target "$CARGO_BUILD_TARGET" "$FEATURE_ARGS"
+          FEATURE_ARGS: ${{ matrix.feature == 'no-default' && '--no-default-features' || matrix.feature == 'all' && '--all-features' || '' }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo test --target "$CARGO_BUILD_TARGET" "${feature_args[@]}"
 
   Testing-MacOS:
-    name: macOS tests (${{ matrix.toolchain_target }})
+    name: macOS tests (${{ matrix.platform }}, ${{ matrix.feature }})
     needs: Formatting
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        feature: [no-default, default, all]
+        platform: [intel, apple-silicon]
         include:
-          - os: macos-15-intel
+          - platform: intel
+            os: macos-15-intel
             toolchain_target: x86_64-apple-darwin
-          - os: macos-15
+          - platform: apple-silicon
+            os: macos-15
             toolchain_target: aarch64-apple-darwin
 
     steps:
@@ -312,5 +373,10 @@ jobs:
       - name: Test
         env:
           RUST_TARGET: ${{ matrix.toolchain_target }}
+          FEATURE_ARGS: ${{ matrix.feature == 'no-default' && '--no-default-features' || matrix.feature == 'all' && '--all-features' || '' }}
         run: |
-          cargo test --release --all-features --verbose --target "$RUST_TARGET"
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo test --release --verbose --target "$RUST_TARGET" "${feature_args[@]}"
