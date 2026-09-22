@@ -46,7 +46,7 @@ jobs:
           rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
 
-      - uses: ./.github/actions/native-tools
+      - uses: $/.github/actions/native-tools
 
       - name: Lint with clippy
         run: RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -Dclippy::all -Dunused_imports
@@ -121,7 +121,7 @@ jobs:
 
       - name: Install native build tools
         if: steps.downstream-branch.outputs.exists == 'true'
-        uses: ./.github/actions/native-tools
+        uses: $/.github/actions/native-tools
 
       - name: Use this nanalogue-seqlib checkout
         if: steps.downstream-branch.outputs.exists == 'true'
@@ -178,7 +178,7 @@ jobs:
           rustup default nightly
 
       - name: Install system dependencies
-        uses: ./.github/actions/native-tools
+        uses: $/.github/actions/native-tools
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
@@ -187,7 +187,8 @@ jobs:
           set -x
           cargo install cargo-tarpaulin
           # Compile-fail tests invoke Cargo and rebuild the vendored native stack.
-          cargo tarpaulin --timeout 300 --all-features --tests --doc --out Lcov -- --test-threads 1
+          cargo tarpaulin --timeout 300 --all-features --tests --doc --out Lcov \
+            --exclude-files 'native/bindings/*' -- --test-threads 1
 
       - name: Upload coverage
         uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
@@ -218,7 +219,7 @@ jobs:
           rustup default stable
 
       - name: Install system dependencies
-        uses: ./.github/actions/native-tools
+        uses: $/.github/actions/native-tools
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
@@ -253,7 +254,7 @@ jobs:
           persist-credentials: false
 
       - name: Install MUSL build dependencies
-        uses: ./.github/actions/native-tools
+        uses: $/.github/actions/native-tools
 
       - name: Configure native MUSL toolchain
         env:
@@ -306,7 +307,7 @@ jobs:
           rustup default stable
 
       - name: Install htslib dependencies
-        uses: ./.github/actions/native-tools
+        uses: $/.github/actions/native-tools
 
       - name: Test
         env:

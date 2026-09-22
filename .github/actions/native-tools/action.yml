@@ -4,7 +4,7 @@ runs:
   using: composite
   steps:
     - shell: bash
-      run: |
+      run: | # zizmor: ignore[github-env] -- This is a fixed, runner-owned directory.
         if [[ "$RUNNER_OS" == Linux ]]; then
           sudo apt-get update
           sudo apt-get install --yes cmake make perl
