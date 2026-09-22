@@ -1,0 +1,162 @@
+name: Downstream Nanalogue tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  Downstream-Nanalogue:
+    name: Nanalogue (${{ matrix.platform }}, ${{ matrix.branch }}, ${{ matrix.feature }} features)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [main, mod-bam-viewer]
+        feature: [default, all]
+        platform:
+          - linux-gnu-x86_64
+          - linux-gnu-arm64
+          - linux-musl-x86_64
+          - linux-musl-arm64
+          - macos-intel
+          - macos-apple-silicon
+        include:
+          - platform: linux-gnu-x86_64
+            os: ubuntu-22.04
+            rust_target: ""
+            musl: false
+          - platform: linux-gnu-arm64
+            os: ubuntu-22.04-arm
+            rust_target: ""
+            musl: false
+          - platform: linux-musl-x86_64
+            os: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-musl
+            musl: true
+          - platform: linux-musl-arm64
+            os: ubuntu-22.04-arm
+            rust_target: aarch64-unknown-linux-musl
+            musl: true
+          - platform: macos-intel
+            os: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            musl: false
+          - platform: macos-apple-silicon
+            os: macos-15
+            rust_target: aarch64-apple-darwin
+            musl: false
+
+    steps:
+      - name: Checkout nanalogue-seqlib
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Check downstream branch
+        id: downstream-branch
+        env:
+          BRANCH: ${{ matrix.branch }}
+        run: |
+          set +e
+          remote_ref="$(git ls-remote --exit-code --heads \
+            https://github.com/DNAReplicationLab/nanalogue.git \
+            "refs/heads/$BRANCH")"
+          status=$?
+          set -e
+          if [[ "$status" -eq 0 ]]; then
+            commit="${remote_ref%%$'\t'*}"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "commit=$commit" >> "$GITHUB_OUTPUT"
+            echo "Using $BRANCH at $commit"
+          elif [[ "$status" -eq 2 && "$BRANCH" == mod-bam-viewer ]]; then
+            echo "Optional branch $BRANCH does not exist; skipping"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Could not resolve required downstream branch $BRANCH" >&2
+            exit "$status"
+          fi
+
+      - name: Checkout Nanalogue
+        if: steps.downstream-branch.outputs.exists == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: DNAReplicationLab/nanalogue
+          # Pin the checkout to the branch head resolved immediately above.
+          ref: ${{ steps.downstream-branch.outputs.commit }}
+          path: downstream/nanalogue
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        if: steps.downstream-branch.outputs.exists == 'true'
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          if [[ -n "$RUST_TARGET" ]]; then
+            rustup toolchain install stable --profile minimal --target "$RUST_TARGET"
+          else
+            rustup toolchain install stable --profile minimal
+          fi
+          rustup default stable
+
+      - name: Install native build tools
+        if: steps.downstream-branch.outputs.exists == 'true'
+        uses: ./.github/actions/native-tools
+
+      - name: Configure native MUSL toolchain
+        if: steps.downstream-branch.outputs.exists == 'true' && matrix.musl
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          test "$(uname -m)" = "${RUST_TARGET%%-*}"
+          target_env="${RUST_TARGET//-/_}"
+          # build.rs compiles C with Zig's MUSL headers/libraries. Rust supplies
+          # its own MUSL CRT to the native GCC linker.
+          printf 'CARGO_TARGET_%s_LINKER=gcc\n' "${target_env^^}" >> "$GITHUB_ENV"
+
+      - name: Use this nanalogue-seqlib checkout
+        if: steps.downstream-branch.outputs.exists == 'true'
+        working-directory: downstream/nanalogue
+        run: |
+          cargo add rust-htslib --path "$GITHUB_WORKSPACE" \
+            --features libdeflate
+          cargo tree -i rust-htslib | tee /tmp/rust-htslib-tree.txt
+          grep -F "($GITHUB_WORKSPACE)" /tmp/rust-htslib-tree.txt
+
+      - name: Compile every target
+        if: steps.downstream-branch.outputs.exists == 'true'
+        working-directory: downstream/nanalogue
+        env:
+          FEATURE_ARGS: ${{ matrix.feature == 'all' && '--all-features' || '' }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          target_args=()
+          if [[ -n "$RUST_TARGET" ]]; then
+            target_args+=(--target "$RUST_TARGET")
+          fi
+          cargo build --all-targets "${target_args[@]}" "${feature_args[@]}"
+
+      - name: Run downstream tests
+        if: steps.downstream-branch.outputs.exists == 'true'
+        working-directory: downstream/nanalogue
+        env:
+          FEATURE_ARGS: ${{ matrix.feature == 'all' && '--all-features' || '' }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          target_args=()
+          if [[ -n "$RUST_TARGET" ]]; then
+            target_args+=(--target "$RUST_TARGET")
+          fi
+          cargo test "${target_args[@]}" "${feature_args[@]}" -- --test-threads=1
+          cargo test "${target_args[@]}" "${feature_args[@]}" -- \
+            --ignored --test-threads=1

@@ -1,0 +1,173 @@
+name: Seqlib tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  Coverage:
+    name: Coverage (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install nightly toolchain
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
+
+      - name: Install system dependencies
+        uses: ./.github/actions/native-tools
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Run cargo-tarpaulin
+        run: |
+          set -x
+          cargo install cargo-tarpaulin
+          # Compile-fail tests invoke Cargo and rebuild the vendored native stack.
+          cargo tarpaulin --timeout 300 --all-features --tests --doc --out Lcov \
+            --exclude-files 'native/bindings/*' -- --test-threads 1
+
+      - name: Upload coverage
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: ./lcov.info
+
+  GNU:
+    name: GNU tests (${{ matrix.os }}, ${{ matrix.feature }})
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm]
+        feature: [no-default, default, all]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install system dependencies
+        uses: ./.github/actions/native-tools
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Test
+        env:
+          FEATURE_ARGS: ${{ matrix.feature == 'no-default' && '--no-default-features' || matrix.feature == 'all' && '--all-features' || '' }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo test "${feature_args[@]}"
+
+  MUSL:
+    name: MUSL tests (${{ matrix.rust_target }}, ${{ matrix.feature }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm]
+        feature: [no-default, default, all]
+        include:
+          - os: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-musl
+          - os: ubuntu-22.04-arm
+            rust_target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.os }}
+    env:
+      # Also target MUSL in the compile-fail tests' nested Cargo invocations.
+      CARGO_BUILD_TARGET: ${{ matrix.rust_target }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install MUSL build dependencies
+        uses: ./.github/actions/native-tools
+
+      - name: Configure native MUSL toolchain
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          test "$(uname -m)" = "${RUST_TARGET%%-*}"
+          rustup toolchain install stable --profile minimal --target "$RUST_TARGET"
+          rustup default stable
+          target_env="${RUST_TARGET//-/_}"
+          # build.rs compiles C with Zig's MUSL headers/libraries. Rust supplies
+          # its own MUSL CRT to the native GCC linker.
+          printf 'CARGO_TARGET_%s_LINKER=gcc\n' "${target_env^^}" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: musl-${{ matrix.rust_target }}-${{ matrix.feature }}
+
+      - name: Run MUSL tests
+        env:
+          FEATURE_ARGS: ${{ matrix.feature == 'no-default' && '--no-default-features' || matrix.feature == 'all' && '--all-features' || '' }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo test --target "$CARGO_BUILD_TARGET" "${feature_args[@]}"
+
+  MacOS:
+    name: macOS tests (${{ matrix.platform }}, ${{ matrix.feature }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: [no-default, default, all]
+        platform: [intel, apple-silicon]
+        include:
+          - platform: intel
+            os: macos-15-intel
+            toolchain_target: x86_64-apple-darwin
+          - platform: apple-silicon
+            os: macos-15
+            toolchain_target: aarch64-apple-darwin
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install stable toolchain
+        env:
+          RUST_TARGET: ${{ matrix.toolchain_target }}
+        run: |
+          rustup toolchain install stable --profile minimal --target "$RUST_TARGET"
+          rustup default stable
+
+      - name: Install htslib dependencies
+        uses: ./.github/actions/native-tools
+
+      - name: Test
+        env:
+          RUST_TARGET: ${{ matrix.toolchain_target }}
+          FEATURE_ARGS: ${{ matrix.feature == 'no-default' && '--no-default-features' || matrix.feature == 'all' && '--all-features' || '' }}
+        run: |
+          feature_args=()
+          if [[ -n "$FEATURE_ARGS" ]]; then
+            feature_args+=("$FEATURE_ARGS")
+          fi
+          cargo test --release --verbose --target "$RUST_TARGET" "${feature_args[@]}"
