@@ -115,6 +115,8 @@ jobs:
           # build.rs compiles C with Zig's MUSL headers/libraries. Rust supplies
           # its own MUSL CRT to the native GCC linker.
           printf 'CARGO_TARGET_%s_LINKER=gcc\n' "${target_env^^}" >> "$GITHUB_ENV"
+          # Downstream dependencies use cc-rs, which needs an explicit target C compiler.
+          printf 'CC_%s=zig cc -target %s\n' "$target_env" "$RUST_TARGET" >> "$GITHUB_ENV"
 
       - name: Use this nanalogue-seqlib checkout
         if: steps.downstream-branch.outputs.exists == 'true'
