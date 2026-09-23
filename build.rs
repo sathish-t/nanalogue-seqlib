@@ -1,3 +1,6 @@
+#[allow(dead_code)] // Artifact metadata is also used by maintainer-only tools.
+#[path = "native/target_spec.rs"]
+mod native_target;
 #[path = "native/network.rs"]
 mod network;
 
@@ -10,16 +13,9 @@ use std::{
 
 fn main() {
     let target = env::var("TARGET").unwrap();
-    let mut zig_target = match target.as_str() {
-        "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
-        "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
-        "x86_64-unknown-linux-musl" => "x86_64-linux-musl",
-        "aarch64-unknown-linux-musl" => "aarch64-linux-musl",
-        "x86_64-apple-darwin" => "x86_64-macos",
-        "aarch64-apple-darwin" => "aarch64-macos",
-        _ => panic!("unsupported vendored HTSlib target: {}", target),
-    }
-    .to_owned();
+    let descriptor = native_target::Target::parse(&target);
+    assert!(descriptor.has_bindings(), "target {} is modeled but not enabled: checked-in bindings and native ABI validation are still required", target);
+    let mut zig_target = descriptor.zig();
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".into());
     let version = Command::new(&zig)
         .arg("version")
@@ -33,7 +29,12 @@ fn main() {
     let compiler = out.join("zig-cc.sh");
     let archiver = out.join("zig-ar.sh");
     let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
-    let mut cc = format!("{} cc -target {} -mcpu=baseline", quote(&zig), zig_target);
+    let mut cc = format!(
+        "{} cc -target {} -mcpu={}",
+        quote(&zig),
+        zig_target,
+        descriptor.cpu()
+    );
     if target.contains("apple") {
         let deployment = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| {
             let output = Command::new(env::var_os("RUSTC").unwrap())
@@ -55,9 +56,10 @@ fn main() {
         env::set_var("MACOSX_DEPLOYMENT_TARGET", &deployment);
         zig_target = format!("{}.{}", zig_target, deployment);
         cc = format!(
-            "{} cc -target {} -mcpu=baseline",
+            "{} cc -target {} -mcpu={}",
             quote(&zig),
-            quote(&zig_target)
+            quote(&zig_target),
+            descriptor.cpu()
         );
         let sdk = env::var("SDKROOT").unwrap_or_else(|_| {
             let output = Command::new("xcrun")
@@ -88,9 +90,16 @@ fn main() {
     )
     .expect("missing checked-in bindings for supported target");
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    run_zig(&root, &out, &zig, &zig_target, "compression");
-    network::build(&out, &target, &compiler, &archiver);
-    run_zig(&root, &out, &zig, &zig_target, "htslib");
+    run_zig(
+        &root,
+        &out,
+        &zig,
+        &zig_target,
+        descriptor.cpu(),
+        "compression",
+    );
+    network::build(&out, descriptor, &compiler, &archiver);
+    run_zig(&root, &out, &zig, &zig_target, descriptor.cpu(), "htslib");
     println!(
         "cargo:rustc-link-search=native={}/native/lib",
         out.display()
@@ -111,7 +120,7 @@ fn main() {
     println!("cargo:rustc-link-lib=static=z");
     // musl includes these in libc, which Rust supplies. Asking a host GCC
     // linker for -lm would accidentally select its glibc libm.a.
-    if !target.ends_with("musl") {
+    if descriptor.libc != native_target::Libc::Musl {
         println!("cargo:rustc-link-lib=m");
         println!("cargo:rustc-link-lib=pthread");
         if target.contains("linux") {
@@ -129,7 +138,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=SDKROOT");
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
-    for file in ["network.rs", "wrapper.c", "wrapper.h"] {
+    for file in ["network.rs", "target_spec.rs", "wrapper.c", "wrapper.h"] {
         println!("cargo:rerun-if-changed=native/{}", file);
     }
     println!("cargo:rerun-if-changed=native/bindings/{}.rs", target);
@@ -138,7 +147,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 }
 
-fn run_zig(root: &Path, out: &Path, zig: &str, target: &str, step: &str) {
+fn run_zig(root: &Path, out: &Path, zig: &str, target: &str, cpu: &str, step: &str) {
     let mut command = Command::new(zig);
     command
         .current_dir(root)
@@ -155,7 +164,7 @@ fn run_zig(root: &Path, out: &Path, zig: &str, target: &str, step: &str) {
             env::var("NUM_JOBS").unwrap_or_else(|_| "1".into())
         ))
         .arg(format!("-Dtarget={target}"))
-        .arg("-Dcpu=baseline");
+        .arg(format!("-Dcpu={cpu}"));
     for feature in ["bzip2", "lzma", "libdeflate", "curl", "s3", "gcs"] {
         command.arg(format!(
             "-D{feature}={}",

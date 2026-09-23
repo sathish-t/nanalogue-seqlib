@@ -1,4 +1,8 @@
-//! Check the C/Rust ABI and that Cargo features really enable native codecs.
+//! Check native ABIs, feature wiring, library versions and network integration.
+#[allow(dead_code)]
+#[path = "../native/target_spec.rs"]
+mod native_target;
+
 use rust_htslib::htslib;
 #[cfg(feature = "lzma")]
 use std::ffi::CStr;

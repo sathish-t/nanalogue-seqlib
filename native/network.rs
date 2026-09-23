@@ -6,12 +6,14 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::native_target::{Os, Target};
+
 /// Builds static OpenSSL and curl archives into `out/native`.
 ///
 /// `compiler` and `archiver` are the project-created wrappers around the
 /// pinned Zig `cc` and `ar`; in particular, this code never asks CMake or
 /// OpenSSL to discover a host compiler or a host copy of either library.
-pub fn build(out: &Path, target: &str, compiler: &Path, archiver: &Path) {
+pub fn build(out: &Path, target: Target, compiler: &Path, archiver: &Path) {
     if env::var_os("CARGO_FEATURE_CURL").is_none() {
         return;
     }
@@ -28,7 +30,8 @@ pub fn build(out: &Path, target: &str, compiler: &Path, archiver: &Path) {
     let curl_build = out.join("curl-build");
     let ranlib_wrapper = out.join("zig-ranlib.sh");
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "1".into());
-    let (openssl_platform, system, processor) = target_settings(target);
+    let openssl_platform = target.openssl();
+    let (system, processor) = target.cmake();
 
     fresh_dir(&openssl_build);
     fs::create_dir_all(&prefix).expect("create native installation prefix");
@@ -154,7 +157,7 @@ pub fn build(out: &Path, target: &str, compiler: &Path, archiver: &Path) {
             "-DCURL_DISABLE_LDAP=ON",
             "-DCURL_DISABLE_LDAPS=ON",
         ]);
-    if target.contains("apple") {
+    if target.os == Os::Macos {
         cmake.arg("-DUSE_APPLE_SECTRUST=ON");
     }
     run(&mut cmake, "configure curl");
@@ -168,20 +171,6 @@ pub fn build(out: &Path, target: &str, compiler: &Path, archiver: &Path) {
         .arg("--parallel")
         .arg(jobs);
     run(&mut install_curl, "build and install curl");
-}
-
-fn target_settings(target: &str) -> (&'static str, &'static str, &'static str) {
-    match target {
-        "x86_64-unknown-linux-gnu" | "x86_64-unknown-linux-musl" => {
-            ("linux-x86_64", "Linux", "x86_64")
-        }
-        "aarch64-unknown-linux-gnu" | "aarch64-unknown-linux-musl" => {
-            ("linux-aarch64", "Linux", "aarch64")
-        }
-        "x86_64-apple-darwin" => ("darwin64-x86_64-cc", "Darwin", "x86_64"),
-        "aarch64-apple-darwin" => ("darwin64-arm64-cc", "Darwin", "arm64"),
-        other => panic!("unsupported vendored network target: {}", other),
-    }
 }
 
 fn fresh_dir(path: &Path) {

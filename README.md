@@ -42,7 +42,9 @@ are no Rust build dependencies. Unrelated Rust dependencies still use Cargo.
 The `bindgen` and `static` features remain no-op compatibility aliases.
 
 See [native source provenance and licenses](native/SOURCES.md) for versions,
-upstream commits, input checksums, local patches and binding regeneration.
+upstream commits, input checksums and local patches. Contributors updating the
+native stack should read [Native build maintenance](native/BUILDING.md) for
+target ABIs, binding regeneration, source inventories and validation.
 The bindings are checked in per target ABI and checked against compiled C
 layouts by integration tests.
 

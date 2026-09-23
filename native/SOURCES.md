@@ -72,9 +72,9 @@ layout; curl's source, build files, documentation and license notices remain.
   `CURL_CA_BUNDLE`, `SSL_CERT_FILE` and `SSL_CERT_DIR` keep precedence, and no
   process environment variable is modified.
 * The original wrapper includes now point into `vendor/htslib`; its C ABI
-  size/offset table supports `tests/native_stack.rs`.
+  size/offset table supports `tests/native_integration.rs`.
 
-## Bindings and updates
+## Generated bindings
 
 `native/bindings/` contains separate files for x86_64/aarch64 Linux GNU, Linux
 musl, and macOS. These were generated using bindgen 0.72.1, libclang 14.0.6,
@@ -82,18 +82,11 @@ and Zig 0.15.2 target headers. Layout assertions are retained. Consumer builds
 do not run bindgen or require libclang; `native/bindgen` is a separate,
 maintainer-only Cargo package and is not a dependency of this crate.
 
-To regenerate one target from the repository root:
-
-```sh
-cargo run --manifest-path native/bindgen/Cargo.toml -- x86_64-unknown-linux-gnu
-```
-
-Regenerate all six after header/toolchain changes, then run the native ABI
-tests and format/codec tests on each target. Updating sources also requires
-checking upstream build source lists, compiler configuration, optional
-dependencies, license changes and security advisories. The version choices
-here preserve the previous native dependency baseline rather than claiming
-that every bundled release is the newest or free of known vulnerabilities.
+See [Native build maintenance](BUILDING.md) for target ABI constraints,
+binding regeneration, source-inventory tools and validation requirements.
+When updating sources, also review license changes and security advisories;
+the pinned versions are not a claim that every bundled release is the newest
+or free of known vulnerabilities.
 
 Zig itself is a build prerequisite, not copied into the library. The explicit
 installer pins 0.15.2 and verifies platform-specific SHA-256 checksums. Its
