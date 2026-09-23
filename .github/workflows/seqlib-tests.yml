@@ -92,9 +92,6 @@ jobs:
           - os: ubuntu-22.04-arm
             rust_target: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.os }}
-    env:
-      # Also target MUSL in the compile-fail tests' nested Cargo invocations.
-      CARGO_BUILD_TARGET: ${{ matrix.rust_target }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -118,6 +115,8 @@ jobs:
 
       - name: Run MUSL tests
         env:
+          # Compile-fail tests start nested Cargo invocations for this target.
+          CARGO_BUILD_TARGET: ${{ matrix.rust_target }}
           FEATURE_ARGS: ${{ matrix.feature == 'no-default' && '--no-default-features' || matrix.feature == 'all' && '--all-features' || '' }}
         run: |
           feature_args=()
