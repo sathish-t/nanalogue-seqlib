@@ -15,4 +15,5 @@ runs:
           command -v minisign >/dev/null || brew install minisign
         fi
         bash native/install-zig.sh
+        cargo install --locked cargo-zigbuild --version 0.23.0
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"

@@ -27,27 +27,21 @@ jobs:
           - platform: linux-gnu-x86_64
             os: ubuntu-22.04
             rust_target: ""
-            musl: false
           - platform: linux-gnu-arm64
             os: ubuntu-22.04-arm
             rust_target: ""
-            musl: false
           - platform: linux-musl-x86_64
             os: ubuntu-22.04
             rust_target: x86_64-unknown-linux-musl
-            musl: true
           - platform: linux-musl-arm64
             os: ubuntu-22.04-arm
             rust_target: aarch64-unknown-linux-musl
-            musl: true
           - platform: macos-intel
             os: macos-15-intel
             rust_target: x86_64-apple-darwin
-            musl: false
           - platform: macos-apple-silicon
             os: macos-15
             rust_target: aarch64-apple-darwin
-            musl: false
 
     steps:
       - name: Checkout nanalogue-seqlib
@@ -105,35 +99,6 @@ jobs:
         if: steps.downstream-branch.outputs.exists == 'true'
         uses: ./.github/actions/native-tools
 
-      - name: Configure native MUSL toolchain
-        if: steps.downstream-branch.outputs.exists == 'true' && matrix.musl
-        env:
-          RUST_TARGET: ${{ matrix.rust_target }}
-        run: |
-          test "$(uname -m)" = "${RUST_TARGET%%-*}"
-          target_env="${RUST_TARGET//-/_}"
-          # build.rs compiles C with Zig's MUSL headers/libraries. Rust supplies
-          # its own MUSL CRT to the native GCC linker.
-          printf 'CARGO_TARGET_%s_LINKER=gcc\n' "${target_env^^}" >> "$GITHUB_ENV"
-          zig_target="${RUST_TARGET/-unknown/}"
-          compiler="$RUNNER_TEMP/zig-musl-cc"
-          cat > "$compiler" <<EOF
-          #!/usr/bin/env bash
-          set -euo pipefail
-          args=()
-          for arg in "\$@"; do
-            if [[ "\$arg" == "--target=$RUST_TARGET" ]]; then
-              args+=("--target=$zig_target")
-            else
-              args+=("\$arg")
-            fi
-          done
-          exec zig cc -target "$zig_target" "\${args[@]}"
-          EOF
-          chmod +x "$compiler"
-          # cc-rs appends Rust's target triple, which Zig does not recognize.
-          printf 'CC_%s=%s\n' "$target_env" "$compiler" >> "$GITHUB_ENV"
-
       - name: Use this nanalogue-seqlib checkout
         if: steps.downstream-branch.outputs.exists == 'true'
         working-directory: downstream/nanalogue
@@ -157,8 +122,10 @@ jobs:
           target_args=()
           if [[ -n "$RUST_TARGET" ]]; then
             target_args+=(--target "$RUST_TARGET")
+          else
+            target_args+=(--target "$(rustc -vV | sed -n 's/^host: //p')")
           fi
-          cargo build --all-targets "${target_args[@]}" "${feature_args[@]}"
+          cargo-zigbuild zigbuild --all-targets "${target_args[@]}" "${feature_args[@]}"
 
       - name: Run downstream tests
         if: steps.downstream-branch.outputs.exists == 'true'
@@ -174,7 +141,9 @@ jobs:
           target_args=()
           if [[ -n "$RUST_TARGET" ]]; then
             target_args+=(--target "$RUST_TARGET")
+          else
+            target_args+=(--target "$(rustc -vV | sed -n 's/^host: //p')")
           fi
-          cargo test "${target_args[@]}" "${feature_args[@]}" -- --test-threads=1
-          cargo test "${target_args[@]}" "${feature_args[@]}" -- \
+          cargo-zigbuild test "${target_args[@]}" "${feature_args[@]}" -- --test-threads=1
+          cargo-zigbuild test "${target_args[@]}" "${feature_args[@]}" -- \
             --ignored --test-threads=1
