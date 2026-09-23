@@ -27,6 +27,8 @@ jobs:
 
       - name: Install system dependencies
         uses: ./.github/actions/native-tools
+        with:
+          install-cargo-zigbuild: false
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
@@ -156,6 +158,8 @@ jobs:
 
       - name: Install htslib dependencies
         uses: ./.github/actions/native-tools
+        with:
+          install-cargo-zigbuild: false
 
       - name: Test
         env:
@@ -166,4 +170,4 @@ jobs:
           if [[ -n "$FEATURE_ARGS" ]]; then
             feature_args+=("$FEATURE_ARGS")
           fi
-          cargo-zigbuild test --release --verbose --target "$RUST_TARGET" "${feature_args[@]}"
+          cargo test --release --verbose --target "$RUST_TARGET" "${feature_args[@]}"

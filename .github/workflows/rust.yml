@@ -47,6 +47,8 @@ jobs:
           rustup default stable
 
       - uses: ./.github/actions/native-tools
+        with:
+          install-cargo-zigbuild: false
 
       - name: Lint with clippy
         run: RUSTFLAGS="-Dwarnings" cargo clippy --all-features --all-targets -- -Dclippy::all -Dunused_imports

@@ -98,6 +98,8 @@ jobs:
       - name: Install native build tools
         if: steps.downstream-branch.outputs.exists == 'true'
         uses: ./.github/actions/native-tools
+        with:
+          install-cargo-zigbuild: ${{ !startsWith(matrix.platform, 'macos-') }}
 
       - name: Use this nanalogue-seqlib checkout
         if: steps.downstream-branch.outputs.exists == 'true'
@@ -114,6 +116,7 @@ jobs:
         env:
           FEATURE_ARGS: ${{ matrix.feature == 'all' && '--all-features' || '' }}
           RUST_TARGET: ${{ matrix.rust_target }}
+          USE_ZIGBUILD: ${{ !startsWith(matrix.platform, 'macos-') }}
         run: |
           feature_args=()
           if [[ -n "$FEATURE_ARGS" ]]; then
@@ -125,7 +128,12 @@ jobs:
           else
             target_args+=(--target "$(rustc -vV | sed -n 's/^host: //p')")
           fi
-          cargo-zigbuild zigbuild --all-targets "${target_args[@]}" "${feature_args[@]}"
+          if [[ "$USE_ZIGBUILD" == true ]]; then
+            build_command=(cargo-zigbuild zigbuild)
+          else
+            build_command=(cargo build)
+          fi
+          "${build_command[@]}" --all-targets "${target_args[@]}" "${feature_args[@]}"
 
       - name: Run downstream tests
         if: steps.downstream-branch.outputs.exists == 'true'
@@ -133,6 +141,7 @@ jobs:
         env:
           FEATURE_ARGS: ${{ matrix.feature == 'all' && '--all-features' || '' }}
           RUST_TARGET: ${{ matrix.rust_target }}
+          USE_ZIGBUILD: ${{ !startsWith(matrix.platform, 'macos-') }}
         run: |
           feature_args=()
           if [[ -n "$FEATURE_ARGS" ]]; then
@@ -144,6 +153,11 @@ jobs:
           else
             target_args+=(--target "$(rustc -vV | sed -n 's/^host: //p')")
           fi
-          cargo-zigbuild test "${target_args[@]}" "${feature_args[@]}" -- --test-threads=1
-          cargo-zigbuild test "${target_args[@]}" "${feature_args[@]}" -- \
+          if [[ "$USE_ZIGBUILD" == true ]]; then
+            test_command=(cargo-zigbuild test)
+          else
+            test_command=(cargo test)
+          fi
+          "${test_command[@]}" "${target_args[@]}" "${feature_args[@]}" -- --test-threads=1
+          "${test_command[@]}" "${target_args[@]}" "${feature_args[@]}" -- \
             --ignored --test-threads=1

@@ -1,9 +1,16 @@
 name: Vendored native build tools
 description: Install the pinned Zig compiler and upstream build generators
+inputs:
+  install-cargo-zigbuild:
+    description: Install cargo-zigbuild for Linux linker jobs
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
     - shell: bash
+      env:
+        INSTALL_CARGO_ZIGBUILD: ${{ inputs.install-cargo-zigbuild }}
       run: | # zizmor: ignore[github-env] -- This is a fixed, runner-owned directory.
         if [[ "$RUNNER_OS" == Linux ]]; then
           sudo apt-get update
@@ -15,5 +22,7 @@ runs:
           command -v minisign >/dev/null || brew install minisign
         fi
         bash native/install-zig.sh
-        cargo install --locked cargo-zigbuild --version 0.23.0
+        if [[ "$INSTALL_CARGO_ZIGBUILD" == true ]]; then
+          cargo install --locked cargo-zigbuild --version 0.23.0
+        fi
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
