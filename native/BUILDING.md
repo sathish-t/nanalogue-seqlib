@@ -260,6 +260,131 @@ gets a `manifest.json` containing generated-file SHA-256 hashes and an
 `oracle.log`; `comparison.json` summarizes differences. Outputs remain in the
 supplied disposable directory, not the vendor tree.
 
+## Running the upstream OpenSSL test suite
+
+The optional upstream suite checks compatibility of the corrected sources
+with OpenSSL's own tests. Configure uses its normal `-O3` optimization here:
+this does **not** reproduce `build.zig` ReleaseSafe or replace its callback,
+provider and TLS tests. Do not weaken ReleaseSafe checks to make tests pass.
+Perl and the OpenSSL Make harness are maintainer-only requirements for this
+optional suite, not requirements of the direct OpenSSL consumer build.
+Curl still requires CMake/Make, as noted above.
+
+`vendor/openssl` intentionally omits test/fuzz harness sources. Restore those
+from the exact pinned OpenSSL 3.6.4 upstream commit, then overlay the corrected
+vendored files **onto the disposable copy**, never in the reverse direction.
+Run this Bash snippet from the repository root on x86_64 Linux with Zig 0.15.2,
+Perl, Make, curl, tar, GNU coreutils, `file`, and `/usr/bin/time` installed.
+It verifies the archive before extraction, creates fresh source/build/cache
+directories under `target`, and runs GNU first, then actual musl binaries.
+Do not track the restored harness, wrappers, caches or logs.
+
+```bash
+(
+set -euo pipefail
+root=$PWD
+zig=$(realpath "$(command -v zig)")
+test "$("$zig" version)" = 0.15.2
+mkdir -p "$root/target"
+run=$(mktemp -d "$root/target/openssl-upstream.XXXXXX")
+printf 'Sources, builds and logs: %s\n' "$run"
+commit=d3c1b1169b3569ff3069e5b399f47b2b28e03d79
+sha=f4e3080732a86b21e2220cf31c3c60026e923d6193bf371ba872e71fb13bb7c7
+curl --fail --location --retry 2 \
+  "https://codeload.github.com/openssl/openssl/tar.gz/$commit" \
+  --output "$run/upstream.tar.gz"
+printf '%s  %s\n' "$sha" "$run/upstream.tar.gz" | sha256sum --check --strict -
+mkdir "$run/src"
+tar -xzf "$run/upstream.tar.gz" --strip-components=1 -C "$run/src"
+cp -a "$root/vendor/openssl/." "$run/src/"
+
+for abi in gnu musl; do
+  cat > "$run/cc-$abi" <<EOF
+#!/bin/sh
+exec "$zig" cc -target x86_64-linux-$abi -mcpu=baseline "\$@"
+EOF
+done
+cat > "$run/ar" <<EOF
+#!/bin/sh
+exec "$zig" ar "\$@"
+EOF
+cat > "$run/ranlib" <<EOF
+#!/bin/sh
+exec "$zig" ar s "\$@"
+EOF
+chmod +x "$run/cc-gnu" "$run/cc-musl" "$run/ar" "$run/ranlib"
+
+for abi in gnu musl; do (
+  build="$run/build-$abi"
+  mkdir "$build"
+  cd "$build"
+  exec > >(tee commands.log) 2>&1
+  set -x
+  unset CFLAGS CPPFLAGS CXXFLAGS LDFLAGS CROSS_COMPILE
+  export SOURCE_DATE_EPOCH=0
+  export ZIG_LOCAL_CACHE_DIR="$build/zig-local-cache"
+  export ZIG_GLOBAL_CACHE_DIR="$build/zig-global-cache"
+  export CC="$run/cc-$abi" AR="$run/ar" RANLIB="$run/ranlib"
+  extra=()
+  if [[ "$abi" == musl ]]; then
+    export CC=cc-musl AR=ar RANLIB=ranlib
+    extra=("--cross-compile-prefix=$run/")
+  fi
+  date -u
+  /usr/bin/time -p -o configure.time perl "$run/src/Configure" \
+    linux-x86_64 --prefix=/native --libdir=lib --openssldir=/etc/ssl \
+    no-shared no-asm no-module no-dso no-engine -fPIC "${extra[@]}" \
+    > configure.log 2>&1
+  perl configdata.pm --dump > configdata.log
+  /usr/bin/time -p -o build.time make -j4 > build.log 2>&1
+  file apps/openssl > executable.log
+  apps/openssl version -a >> executable.log
+  export HARNESS_TAP_COPY="$build/tests.tap"
+  if /usr/bin/time -p -o test.time make test HARNESS_JOBS=4 > test.log 2>&1; then
+    result=0
+  else
+    result=$?
+  fi
+  echo "$result" > test.exit
+  tail -45 test.log
+  date -u
+  exit "$result"
+); done
+)
+```
+
+Inspect `configdata.log`, compiler commands in `build.log`, and `executable.log`
+to confirm the intended target. Musl must be declared through `CROSS_COMPILE`
+(the Configure prefix above), even though its x86_64 binaries run on this host.
+Otherwise `02-test_errstr` compares musl's `strerror()` strings against the
+host Perl's glibc strings and reports false failures. Upstream skips that
+recipe and `04-test_conf` for declared cross builds; do not patch their
+expectations or substitute GNU executables. In the initial undeclared-cross
+musl run, only `02-test_errstr` failed (73 assertions); a standalone musl libc
+probe reproduced all 73 strings without OpenSSL. `04-test_conf` passed there.
+
+Reference runs on **2026-09-23 UTC**, OpenSSL **3.6.4** with the pinned snapshot,
+local callback corrections, Zig **0.15.2**, baseline x86_64 CPUs and the options
+above produced the following results. Counts exclude the separate skipped
+FIPS preparation recipe; recipe counts and top-level TAP assertion counts
+are different units and must not be added together.
+
+| Executed target | Recipes: pass / fail / skip | TAP assertions: pass / fail / skip | Harness total assertions |
+| --- | --- | --- | --- |
+| x86_64 Linux GNU | 303 / 0 / 52 | 4014 / 0 / 65 | 4079 |
+| x86_64 Linux musl, declared cross build | 301 / 0 / 54 | 3870 / 0 / 66 | 3936 |
+
+Expected skips include FIPS, shared-library/dynamic-engine tests, other
+disabled or default-off features, external integrations and absent fuzz
+corpora. Preserve exact reasons in `test.log`/`tests.tap`; these results do not
+validate skipped features, other architectures, or the direct ReleaseSafe
+build. Keep the independent direct tests, for example:
+
+```sh
+zig build test-openssl -Dtarget=x86_64-linux-gnu -Dcpu=baseline
+zig build test-openssl -Dtarget=x86_64-linux-musl -Dcpu=baseline
+```
+
 ## OpenSSL configuration differences to preserve
 
 For pinned OpenSSL 3.6.4 with these options, the seven Configure targets share
