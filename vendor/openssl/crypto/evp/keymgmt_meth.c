@@ -343,7 +343,7 @@ void EVP_KEYMGMT_do_all_provided(OSSL_LIB_CTX *libctx,
     void *arg)
 {
     evp_generic_do_all(libctx, OSSL_OP_KEYMGMT,
-        (void (*)(void *, void *))fn, arg,
+        EVP_TYPED_DO_ALL(EVP_KEYMGMT, fn, arg),
         keymgmt_from_algorithm,
         evp_keymgmt_up_ref,
         evp_keymgmt_free);

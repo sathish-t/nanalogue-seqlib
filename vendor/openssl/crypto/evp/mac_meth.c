@@ -247,7 +247,7 @@ void EVP_MAC_do_all_provided(OSSL_LIB_CTX *libctx,
     void *arg)
 {
     evp_generic_do_all(libctx, OSSL_OP_MAC,
-        (void (*)(void *, void *))fn, arg,
+        EVP_TYPED_DO_ALL(EVP_MAC, fn, arg),
         evp_mac_from_algorithm, evp_mac_up_ref, evp_mac_free);
 }
 

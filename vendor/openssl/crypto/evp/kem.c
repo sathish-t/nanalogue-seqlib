@@ -501,7 +501,7 @@ void EVP_KEM_do_all_provided(OSSL_LIB_CTX *libctx,
     void (*fn)(EVP_KEM *kem, void *arg),
     void *arg)
 {
-    evp_generic_do_all(libctx, OSSL_OP_KEM, (void (*)(void *, void *))fn, arg,
+    evp_generic_do_all(libctx, OSSL_OP_KEM, EVP_TYPED_DO_ALL(EVP_KEM, fn, arg),
         evp_kem_from_algorithm,
         evp_kem_up_ref,
         evp_kem_free);

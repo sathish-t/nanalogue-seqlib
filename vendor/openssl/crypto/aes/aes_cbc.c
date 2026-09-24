@@ -16,6 +16,7 @@
 
 #include <openssl/aes.h>
 #include <openssl/modes.h>
+#include "crypto/aes_callbacks.h"
 
 void AES_cbc_encrypt(const unsigned char *in, unsigned char *out,
     size_t len, const AES_KEY *key,
@@ -24,8 +25,8 @@ void AES_cbc_encrypt(const unsigned char *in, unsigned char *out,
 
     if (enc)
         CRYPTO_cbc128_encrypt(in, out, len, key, ivec,
-            (block128_f)AES_encrypt);
+            ossl_aes_encrypt_block);
     else
         CRYPTO_cbc128_decrypt(in, out, len, key, ivec,
-            (block128_f)AES_decrypt);
+            ossl_aes_decrypt_block);
 }

@@ -493,7 +493,7 @@ void EVP_RAND_do_all_provided(OSSL_LIB_CTX *libctx,
     void *arg)
 {
     evp_generic_do_all(libctx, OSSL_OP_RAND,
-        (void (*)(void *, void *))fn, arg,
+        EVP_TYPED_DO_ALL(EVP_RAND, fn, arg),
         evp_rand_from_algorithm, evp_rand_up_ref,
         evp_rand_free);
 }

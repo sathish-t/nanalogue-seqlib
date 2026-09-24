@@ -5947,3 +5947,7 @@ CRYPTO_realloc_array                    6074	3_6_0	EXIST::FUNCTION:
 CRYPTO_clear_realloc_array              6075	3_6_0	EXIST::FUNCTION:
 CRYPTO_secure_malloc_array              6076	3_6_0	EXIST::FUNCTION:
 CRYPTO_secure_calloc                    6077	3_6_0	EXIST::FUNCTION:
+OPENSSL_sk_new_reserve_ex                6078	3_6_0	EXIST::FUNCTION:
+OPENSSL_sk_set_cmp_func_ex               6079	3_6_0	EXIST::FUNCTION:
+OPENSSL_sk_pop_free_ex                   6080	3_6_0	EXIST::FUNCTION:
+OPENSSL_sk_deep_copy_ex                  6081	3_6_0	EXIST::FUNCTION:

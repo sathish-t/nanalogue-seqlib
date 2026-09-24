@@ -139,14 +139,17 @@ static int asn1_item_print_ctx(BIO *out, const ASN1_VALUE **fld, int indent,
     const ASN1_VALUE **tmpfld;
     const ASN1_AUX *aux = it->funcs;
     ASN1_aux_const_cb *asn1_cb = NULL;
+    ASN1_aux_cb *legacy_cb = NULL;
     ASN1_PRINT_ARG parg;
     int i;
     if (aux != NULL) {
         parg.out = out;
         parg.indent = indent;
         parg.pctx = pctx;
-        asn1_cb = ((aux->flags & ASN1_AFLG_CONST_CB) != 0) ? aux->asn1_const_cb
-                                                           : (ASN1_aux_const_cb *)aux->asn1_cb; /* backward compatibility */
+        if (aux->flags & ASN1_AFLG_CONST_CB)
+            asn1_cb = aux->asn1_const_cb;
+        else
+            legacy_cb = aux->asn1_cb;
     }
 
     if (((it->itype != ASN1_ITYPE_PRIMITIVE)
@@ -220,8 +223,9 @@ static int asn1_item_print_ctx(BIO *out, const ASN1_VALUE **fld, int indent,
             }
         }
 
-        if (asn1_cb) {
-            i = asn1_cb(ASN1_OP_PRINT_PRE, fld, it, &parg);
+        if (asn1_cb || legacy_cb) {
+            i = asn1_cb ? asn1_cb(ASN1_OP_PRINT_PRE, fld, it, &parg)
+                        : legacy_cb(ASN1_OP_PRINT_PRE, (ASN1_VALUE **)fld, it, &parg);
             if (i == 0)
                 return 0;
             if (i == 2)
@@ -244,8 +248,9 @@ static int asn1_item_print_ctx(BIO *out, const ASN1_VALUE **fld, int indent,
                 return 0;
         }
 
-        if (asn1_cb) {
-            i = asn1_cb(ASN1_OP_PRINT_POST, fld, it, &parg);
+        if (asn1_cb || legacy_cb) {
+            i = asn1_cb ? asn1_cb(ASN1_OP_PRINT_POST, fld, it, &parg)
+                        : legacy_cb(ASN1_OP_PRINT_POST, (ASN1_VALUE **)fld, it, &parg);
             if (i == 0)
                 return 0;
         }

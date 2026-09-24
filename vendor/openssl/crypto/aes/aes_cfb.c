@@ -15,6 +15,7 @@
 
 #include <openssl/aes.h>
 #include <openssl/modes.h>
+#include "crypto/aes_callbacks.h"
 
 /*
  * The input and output encrypted as though 128bit cfb mode is being used.
@@ -28,7 +29,7 @@ void AES_cfb128_encrypt(const unsigned char *in, unsigned char *out,
 {
 
     CRYPTO_cfb128_encrypt(in, out, length, key, ivec, num, enc,
-        (block128_f)AES_encrypt);
+        ossl_aes_encrypt_block);
 }
 
 /* N.B. This expects the input to be packed, MS bit first */
@@ -37,7 +38,7 @@ void AES_cfb1_encrypt(const unsigned char *in, unsigned char *out,
     unsigned char *ivec, int *num, const int enc)
 {
     CRYPTO_cfb128_1_encrypt(in, out, length, key, ivec, num, enc,
-        (block128_f)AES_encrypt);
+        ossl_aes_encrypt_block);
 }
 
 void AES_cfb8_encrypt(const unsigned char *in, unsigned char *out,
@@ -45,5 +46,5 @@ void AES_cfb8_encrypt(const unsigned char *in, unsigned char *out,
     unsigned char *ivec, int *num, const int enc)
 {
     CRYPTO_cfb128_8_encrypt(in, out, length, key, ivec, num, enc,
-        (block128_f)AES_encrypt);
+        ossl_aes_encrypt_block);
 }

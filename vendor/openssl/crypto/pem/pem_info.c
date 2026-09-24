@@ -24,6 +24,18 @@
 #include <openssl/dsa.h>
 #include "crypto/evp.h"
 
+/* Restore the concrete output-pointer type before calling each decoder. */
+#define D2I_ADAPTER(name, type) \
+    static void *decode_##name(void **out, const unsigned char **in, long len) \
+    { \
+        return d2i_##name((type **)out, in, len); \
+    }
+D2I_ADAPTER(X509, X509)
+D2I_ADAPTER(X509_AUX, X509)
+D2I_ADAPTER(X509_CRL, X509_CRL)
+D2I_ADAPTER(AutoPrivateKey, EVP_PKEY)
+#undef D2I_ADAPTER
+
 #ifndef OPENSSL_NO_STDIO
 STACK_OF(X509_INFO)
 *PEM_X509_INFO_read_ex(FILE *fp, STACK_OF(X509_INFO) *sk, pem_password_cb *cb,
@@ -102,15 +114,15 @@ STACK_OF(X509_INFO) *PEM_X509_INFO_read_bio_ex(BIO *bp, STACK_OF(X509_INFO) *sk,
                 goto start;
             }
             if ((strcmp(name, PEM_STRING_X509_TRUSTED) == 0))
-                d2i = (D2I_OF(void))d2i_X509_AUX;
+                d2i = decode_X509_AUX;
             else
-                d2i = (D2I_OF(void))d2i_X509;
+                d2i = decode_X509;
             xi->x509 = X509_new_ex(libctx, propq);
             if (xi->x509 == NULL)
                 goto err;
             pp = &(xi->x509);
         } else if (strcmp(name, PEM_STRING_X509_CRL) == 0) {
-            d2i = (D2I_OF(void))d2i_X509_CRL;
+            d2i = decode_X509_CRL;
             if (xi->crl != NULL) {
                 if (!sk_X509_INFO_push(ret, xi))
                     goto err;
@@ -137,7 +149,7 @@ STACK_OF(X509_INFO) *PEM_X509_INFO_read_bio_ex(BIO *bp, STACK_OF(X509_INFO) *sk,
             xi->enc_data = NULL;
             xi->enc_len = 0;
 
-            d2i = (D2I_OF(void))d2i_AutoPrivateKey;
+            d2i = decode_AutoPrivateKey;
             xi->x_pkey = X509_PKEY_new();
             if (xi->x_pkey == NULL)
                 goto err;

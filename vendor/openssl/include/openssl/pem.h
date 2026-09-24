@@ -100,6 +100,19 @@ extern "C" {
         OSSL_LIB_CTX *libctx,                                      \
         const char *propq)
 
+/* Match the erased PEM callback types without calling through cast pointers. */
+#define PEM_D2I_ADAPTER(name, type, asn1, suffix) \
+    static void *pem_d2i_##name##suffix(void **out, const unsigned char **in, long len) \
+    { \
+        type *value = out != NULL ? *out : NULL; \
+        type *ret = d2i_##asn1(out != NULL ? &value : NULL, in, len); \
+        if (out != NULL) *out = value; \
+        return ret; \
+    }
+#define PEM_I2D_ADAPTER(name, type, asn1, suffix) \
+    static int pem_i2d_##name##suffix(const void *value, unsigned char **out) \
+    { return i2d_##asn1((const type *)value, out); }
+
 #ifdef OPENSSL_NO_STDIO
 
 #define IMPLEMENT_PEM_read_fp(name, type, str, asn1) /**/
@@ -114,16 +127,18 @@ extern "C" {
 #else
 
 #define IMPLEMENT_PEM_read_fp(name, type, str, asn1)                        \
+    PEM_D2I_ADAPTER(name, type, asn1, _fp)                                \
     type *PEM_read_##name(FILE *fp, type **x, pem_password_cb *cb, void *u) \
     {                                                                       \
-        return PEM_ASN1_read((d2i_of_void *)d2i_##asn1, str, fp,            \
+        return PEM_ASN1_read(pem_d2i_##name##_fp, str, fp,                 \
             (void **)x, cb, u);                                             \
     }
 
 #define IMPLEMENT_PEM_write_fp(name, type, str, asn1)              \
+    PEM_I2D_ADAPTER(name, type, asn1, _fp)                        \
     PEM_write_fnsig(name, type, FILE, write)                       \
     {                                                              \
-        return PEM_ASN1_write((i2d_of_void *)i2d_##asn1, str, out, \
+        return PEM_ASN1_write(pem_i2d_##name##_fp, str, out,      \
             x, NULL, NULL, 0, NULL, NULL);                         \
     }
 
@@ -133,9 +148,10 @@ extern "C" {
 #endif
 
 #define IMPLEMENT_PEM_write_cb_fp(name, type, str, asn1)           \
+    PEM_I2D_ADAPTER(name, type, asn1, _fp)                        \
     PEM_write_cb_fnsig(name, type, FILE, write)                    \
     {                                                              \
-        return PEM_ASN1_write((i2d_of_void *)i2d_##asn1, str, out, \
+        return PEM_ASN1_write(pem_i2d_##name##_fp, str, out,      \
             x, enc, kstr, klen, cb, u);                            \
     }
 
@@ -146,17 +162,19 @@ extern "C" {
 #endif
 
 #define IMPLEMENT_PEM_read_bio(name, type, str, asn1)                \
+    PEM_D2I_ADAPTER(name, type, asn1, _bio)                        \
     type *PEM_read_bio_##name(BIO *bp, type **x,                     \
         pem_password_cb *cb, void *u)                                \
     {                                                                \
-        return PEM_ASN1_read_bio((d2i_of_void *)d2i_##asn1, str, bp, \
+        return PEM_ASN1_read_bio(pem_d2i_##name##_bio, str, bp,     \
             (void **)x, cb, u);                                      \
     }
 
 #define IMPLEMENT_PEM_write_bio(name, type, str, asn1)                 \
+    PEM_I2D_ADAPTER(name, type, asn1, _bio)                           \
     PEM_write_fnsig(name, type, BIO, write_bio)                        \
     {                                                                  \
-        return PEM_ASN1_write_bio((i2d_of_void *)i2d_##asn1, str, out, \
+        return PEM_ASN1_write_bio(pem_i2d_##name##_bio, str, out,      \
             x, NULL, NULL, 0, NULL, NULL);                             \
     }
 
@@ -166,9 +184,10 @@ extern "C" {
 #endif
 
 #define IMPLEMENT_PEM_write_cb_bio(name, type, str, asn1)              \
+    PEM_I2D_ADAPTER(name, type, asn1, _bio)                           \
     PEM_write_cb_fnsig(name, type, BIO, write_bio)                     \
     {                                                                  \
-        return PEM_ASN1_write_bio((i2d_of_void *)i2d_##asn1, str, out, \
+        return PEM_ASN1_write_bio(pem_i2d_##name##_bio, str, out,      \
             x, enc, kstr, klen, cb, u);                                \
     }
 

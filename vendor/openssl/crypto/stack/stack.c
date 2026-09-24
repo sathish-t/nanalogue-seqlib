@@ -32,16 +32,24 @@ struct stack_st {
     int num_alloc;
     OPENSSL_sk_compfunc comp;
     OPENSSL_sk_freefunc_thunk free_thunk;
+    OPENSSL_sk_compfunc_thunk comp_thunk;
 };
 
 OPENSSL_sk_compfunc OPENSSL_sk_set_cmp_func(OPENSSL_STACK *sk,
     OPENSSL_sk_compfunc c)
 {
+    return OPENSSL_sk_set_cmp_func_ex(sk, c, NULL);
+}
+
+OPENSSL_sk_compfunc OPENSSL_sk_set_cmp_func_ex(OPENSSL_STACK *sk,
+    OPENSSL_sk_compfunc c, OPENSSL_sk_compfunc_thunk c_thunk)
+{
     OPENSSL_sk_compfunc old = sk->comp;
 
-    if (sk->comp != c)
+    if (sk->comp != c || sk->comp_thunk != c_thunk)
         sk->sorted = 0;
     sk->comp = c;
+    sk->comp_thunk = c_thunk;
 
     return old;
 }
@@ -50,7 +58,7 @@ OPENSSL_STACK *OPENSSL_sk_dup(const OPENSSL_STACK *sk)
 {
     OPENSSL_STACK *ret;
 
-    if ((ret = OPENSSL_malloc(sizeof(*ret))) == NULL)
+    if ((ret = OPENSSL_zalloc(sizeof(*ret))) == NULL)
         goto err;
 
     if (sk == NULL) {
@@ -85,10 +93,17 @@ OPENSSL_STACK *OPENSSL_sk_deep_copy(const OPENSSL_STACK *sk,
     OPENSSL_sk_copyfunc copy_func,
     OPENSSL_sk_freefunc free_func)
 {
+    return OPENSSL_sk_deep_copy_ex(sk, copy_func, free_func, NULL, NULL);
+}
+
+OPENSSL_STACK *OPENSSL_sk_deep_copy_ex(const OPENSSL_STACK *sk,
+    OPENSSL_sk_copyfunc copy_func, OPENSSL_sk_freefunc free_func,
+    OPENSSL_sk_copyfunc_thunk c_thunk, OPENSSL_sk_freefunc_thunk f_thunk)
+{
     OPENSSL_STACK *ret;
     int i;
 
-    if ((ret = OPENSSL_malloc(sizeof(*ret))) == NULL)
+    if ((ret = OPENSSL_zalloc(sizeof(*ret))) == NULL)
         goto err;
 
     if (sk == NULL) {
@@ -115,10 +130,16 @@ OPENSSL_STACK *OPENSSL_sk_deep_copy(const OPENSSL_STACK *sk,
     for (i = 0; i < ret->num; ++i) {
         if (sk->data[i] == NULL)
             continue;
-        if ((ret->data[i] = copy_func(sk->data[i])) == NULL) {
+        ret->data[i] = c_thunk != NULL
+            ? c_thunk(copy_func, sk->data[i]) : copy_func(sk->data[i]);
+        if (ret->data[i] == NULL) {
             while (--i >= 0)
-                if (ret->data[i] != NULL)
-                    free_func((void *)ret->data[i]);
+                if (ret->data[i] != NULL) {
+                    if (f_thunk != NULL)
+                        f_thunk(free_func, (void *)ret->data[i]);
+                    else
+                        free_func((void *)ret->data[i]);
+                }
             goto err;
         }
     }
@@ -227,12 +248,19 @@ static int sk_reserve(OPENSSL_STACK *st, int n, int exact)
 
 OPENSSL_STACK *OPENSSL_sk_new_reserve(OPENSSL_sk_compfunc c, int n)
 {
+    return OPENSSL_sk_new_reserve_ex(c, n, NULL);
+}
+
+OPENSSL_STACK *OPENSSL_sk_new_reserve_ex(OPENSSL_sk_compfunc c, int n,
+    OPENSSL_sk_compfunc_thunk c_thunk)
+{
     OPENSSL_STACK *st = OPENSSL_zalloc(sizeof(OPENSSL_STACK));
 
     if (st == NULL)
         return NULL;
 
     st->comp = c;
+    st->comp_thunk = c_thunk;
 
     if (n <= 0)
         return st;
@@ -324,6 +352,36 @@ void *OPENSSL_sk_delete(OPENSSL_STACK *st, int loc)
     return internal_delete(st, loc);
 }
 
+static int sk_compare(const OPENSSL_STACK *st, const void *a, const void *b)
+{
+    return st->comp_thunk != NULL
+        ? st->comp_thunk(st->comp, a, b) : st->comp(a, b);
+}
+
+/* The stack context avoids global/TLS comparator state and qsort_r ABI variants.
+ * Keep ossl_bsearch's first-match and VALUE_ON_NOMATCH semantics unchanged. */
+static const void *sk_bsearch(const OPENSSL_STACK *st, const void *key, int flags)
+{
+    int l = 0, h = st->num, i = 0, c = 0;
+
+    while (l < h) {
+        i = l + (h - l) / 2;
+        c = sk_compare(st, key, st->data + i);
+        if (c < 0)
+            h = i;
+        else if (c > 0)
+            l = i + 1;
+        else
+            break;
+    }
+    if (c != 0 && !(flags & OSSL_BSEARCH_VALUE_ON_NOMATCH))
+        return NULL;
+    if (c == 0 && (flags & OSSL_BSEARCH_FIRST_VALUE_ON_MATCH))
+        while (i > 0 && sk_compare(st, key, st->data + i - 1) == 0)
+            i--;
+    return st->data + i;
+}
+
 static int internal_find(OPENSSL_STACK *st, const void *data,
     int ret_val_options, int *pnum_matched)
 {
@@ -354,7 +412,7 @@ static int internal_find(OPENSSL_STACK *st, const void *data,
         int res = -1;
 
         for (i = 0; i < st->num; i++)
-            if (st->comp(&data, st->data + i) == 0) {
+            if (sk_compare(st, &data, st->data + i) == 0) {
                 if (res == -1)
                     res = i;
                 ++*pnum;
@@ -369,8 +427,7 @@ static int internal_find(OPENSSL_STACK *st, const void *data,
 
     if (pnum_matched != NULL)
         ret_val_options |= OSSL_BSEARCH_FIRST_VALUE_ON_MATCH;
-    r = ossl_bsearch(&data, st->data, st->num, sizeof(void *), st->comp,
-        ret_val_options);
+    r = sk_bsearch(st, &data, ret_val_options);
 
     if (pnum_matched != NULL) {
         *pnum = 0;
@@ -378,7 +435,7 @@ static int internal_find(OPENSSL_STACK *st, const void *data,
             const void **p = (const void **)r;
 
             while (p < st->data + st->num) {
-                if (st->comp(&data, p) != 0)
+                if (sk_compare(st, &data, p) != 0)
                     break;
                 ++*pnum;
                 ++p;
@@ -440,6 +497,12 @@ void OPENSSL_sk_zero(OPENSSL_STACK *st)
 
 void OPENSSL_sk_pop_free(OPENSSL_STACK *st, OPENSSL_sk_freefunc func)
 {
+    OPENSSL_sk_pop_free_ex(st, func, st != NULL ? st->free_thunk : NULL);
+}
+
+void OPENSSL_sk_pop_free_ex(OPENSSL_STACK *st, OPENSSL_sk_freefunc func,
+    OPENSSL_sk_freefunc_thunk f_thunk)
+{
     int i;
 
     if (st == NULL)
@@ -447,8 +510,8 @@ void OPENSSL_sk_pop_free(OPENSSL_STACK *st, OPENSSL_sk_freefunc func)
 
     for (i = 0; i < st->num; i++) {
         if (st->data[i] != NULL) {
-            if (st->free_thunk != NULL)
-                st->free_thunk(func, (void *)st->data[i]);
+            if (f_thunk != NULL)
+                f_thunk(func, (void *)st->data[i]);
             else
                 func((void *)st->data[i]);
         }
@@ -492,11 +555,39 @@ void *OPENSSL_sk_set(OPENSSL_STACK *st, int i, const void *data)
     return (void *)st->data[i];
 }
 
+/* Allocation-free heapsort: O(n log n), reentrant, and no platform callbacks.
+ * sort returns void, so introducing a fallible scratch allocation is unsafe. */
+static void sk_sift_down(OPENSSL_STACK *st, int root, int n)
+{
+    while (root < n / 2) {
+        int child = root * 2 + 1;
+        const void *tmp;
+
+        if (child + 1 < n && sk_compare(st, st->data + child, st->data + child + 1) < 0)
+            child++;
+        if (sk_compare(st, st->data + root, st->data + child) >= 0)
+            break;
+        tmp = st->data[root];
+        st->data[root] = st->data[child];
+        st->data[child] = tmp;
+        root = child;
+    }
+}
+
 void OPENSSL_sk_sort(OPENSSL_STACK *st)
 {
     if (st != NULL && !st->sorted && st->comp != NULL) {
-        if (st->num > 1)
-            qsort(st->data, st->num, sizeof(void *), st->comp);
+        int i;
+
+        for (i = st->num / 2; i > 0; )
+            sk_sift_down(st, --i, st->num);
+        for (i = st->num - 1; i > 0; i--) {
+            const void *tmp = st->data[0];
+
+            st->data[0] = st->data[i];
+            st->data[i] = tmp;
+            sk_sift_down(st, 0, i);
+        }
         st->sorted = 1; /* empty or single-element stack is considered sorted */
     }
 }

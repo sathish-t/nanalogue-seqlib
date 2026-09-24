@@ -580,4 +580,12 @@ void HWAES_ocb_decrypt(const unsigned char *in, unsigned char *out,
 
 #endif /* HWAES_CAPABLE */
 
+/* EVP/provider users pass these functions to generic modes callbacks. Route
+ * the portable implementation through correctly typed adapters, including
+ * token-selected GCM/CCM/XTS/OCB callbacks. Do not change the public AES API. */
+#include "crypto/aes_callbacks.h"
+#define AES_encrypt ossl_aes_encrypt_block
+#define AES_decrypt ossl_aes_decrypt_block
+#define AES_cbc_encrypt ossl_aes_cbc
+
 #endif /* OSSL_AES_PLATFORM_H */

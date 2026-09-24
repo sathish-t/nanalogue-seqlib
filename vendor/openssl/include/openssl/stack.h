@@ -26,6 +26,19 @@ typedef int (*OPENSSL_sk_compfunc)(const void *, const void *);
 typedef void (*OPENSSL_sk_freefunc)(void *);
 typedef void (*OPENSSL_sk_freefunc_thunk)(OPENSSL_sk_freefunc, void *);
 typedef void *(*OPENSSL_sk_copyfunc)(const void *);
+typedef int (*OPENSSL_sk_compfunc_thunk)(OPENSSL_sk_compfunc, const void *, const void *);
+typedef void *(*OPENSSL_sk_copyfunc_thunk)(OPENSSL_sk_copyfunc, const void *);
+
+/* Local typed-stack adapters: stored callbacks are converted back before use. */
+OPENSSL_STACK *OPENSSL_sk_new_reserve_ex(OPENSSL_sk_compfunc c, int n,
+    OPENSSL_sk_compfunc_thunk c_thunk);
+OPENSSL_sk_compfunc OPENSSL_sk_set_cmp_func_ex(OPENSSL_STACK *sk,
+    OPENSSL_sk_compfunc c, OPENSSL_sk_compfunc_thunk c_thunk);
+void OPENSSL_sk_pop_free_ex(OPENSSL_STACK *st, OPENSSL_sk_freefunc f,
+    OPENSSL_sk_freefunc_thunk f_thunk);
+OPENSSL_STACK *OPENSSL_sk_deep_copy_ex(const OPENSSL_STACK *sk,
+    OPENSSL_sk_copyfunc c, OPENSSL_sk_freefunc f,
+    OPENSSL_sk_copyfunc_thunk c_thunk, OPENSSL_sk_freefunc_thunk f_thunk);
 
 int OPENSSL_sk_num(const OPENSSL_STACK *);
 void *OPENSSL_sk_value(const OPENSSL_STACK *, int);

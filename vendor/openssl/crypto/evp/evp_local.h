@@ -299,6 +299,30 @@ int ossl_is_partially_overlapping(const void *ptr1, const void *ptr2, int len);
 #include <openssl/types.h>
 #include <openssl/core.h>
 
+/* The traversal is synchronous. Keep the typed user callback in stack-local
+ * context rather than invoking it through the erased method signature. */
+#define DEFINE_EVP_DO_ALL_ADAPTER(type) \
+    struct evp_do_all_##type { void (*fn)(type *, void *); void *arg; }; \
+    static ossl_unused ossl_inline void evp_do_all_##type(void *method, void *arg) \
+    { \
+        struct evp_do_all_##type *ctx = arg; \
+        ctx->fn((type *)method, ctx->arg); \
+    }
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_MD)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_CIPHER)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_MAC)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_KDF)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_RAND)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_KEYMGMT)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_KEYEXCH)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_SIGNATURE)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_ASYM_CIPHER)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_KEM)
+DEFINE_EVP_DO_ALL_ADAPTER(EVP_SKEYMGMT)
+#undef DEFINE_EVP_DO_ALL_ADAPTER
+#define EVP_TYPED_DO_ALL(type, fn, arg) \
+    evp_do_all_##type, &(struct evp_do_all_##type){ fn, arg }
+
 void *evp_generic_fetch(OSSL_LIB_CTX *ctx, int operation_id,
     const char *name, const char *properties,
     void *(*new_method)(int name_id,

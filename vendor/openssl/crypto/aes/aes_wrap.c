@@ -16,12 +16,13 @@
 #include "internal/cryptlib.h"
 #include <openssl/aes.h>
 #include <openssl/modes.h>
+#include "crypto/aes_callbacks.h"
 
 int AES_wrap_key(AES_KEY *key, const unsigned char *iv,
     unsigned char *out,
     const unsigned char *in, unsigned int inlen)
 {
-    return (int)CRYPTO_128_wrap(key, iv, out, in, inlen, (block128_f)AES_encrypt);
+    return (int)CRYPTO_128_wrap(key, iv, out, in, inlen, ossl_aes_encrypt_block);
 }
 
 int AES_unwrap_key(AES_KEY *key, const unsigned char *iv,
@@ -29,5 +30,5 @@ int AES_unwrap_key(AES_KEY *key, const unsigned char *iv,
     const unsigned char *in, unsigned int inlen)
 {
     return (int)CRYPTO_128_unwrap(key, iv, out, in, inlen,
-        (block128_f)AES_decrypt);
+        ossl_aes_decrypt_block);
 }

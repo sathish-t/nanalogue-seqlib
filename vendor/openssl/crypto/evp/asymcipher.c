@@ -556,7 +556,7 @@ void EVP_ASYM_CIPHER_do_all_provided(OSSL_LIB_CTX *libctx,
     void *arg)
 {
     evp_generic_do_all(libctx, OSSL_OP_ASYM_CIPHER,
-        (void (*)(void *, void *))fn, arg,
+        EVP_TYPED_DO_ALL(EVP_ASYM_CIPHER, fn, arg),
         evp_asym_cipher_from_algorithm,
         evp_asym_cipher_up_ref,
         evp_asym_cipher_free);

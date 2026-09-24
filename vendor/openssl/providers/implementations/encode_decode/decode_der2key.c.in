@@ -50,6 +50,84 @@ use OpenSSL::paramnames qw(produce_param_decoder);
 #include "prov/ml_dsa_codecs.h"
 #include "prov/ml_kem_codecs.h"
 
+/* Local generic callback adapters. Descriptor tables below deliberately erase
+ * key types; the adapters restore them before calling the public/internal API.
+ * Aliases are confined to this translation unit, after all declarations. */
+#define DER_FREE_ADAPTER(fn) \
+    static void generic_##fn(void *key) { fn(key); }
+#define DER_D2I_ADAPTER(fn, type) \
+    static void *generic_##fn(void **out, const unsigned char **der, long len) \
+    { \
+        type *key = out != NULL ? *out : NULL; \
+        type *ret = fn(out != NULL ? &key : NULL, der, len); \
+        if (out != NULL) *out = key; \
+        return ret; \
+    }
+#define DER_P8_ADAPTER(fn) \
+    static void *generic_##fn(const PKCS8_PRIV_KEY_INFO *p8, OSSL_LIB_CTX *ctx, const char *propq) \
+    { return fn(p8, ctx, propq); }
+DER_FREE_ADAPTER(RSA_free)
+DER_D2I_ADAPTER(d2i_RSAPrivateKey, RSA)
+DER_D2I_ADAPTER(d2i_RSAPublicKey, RSA)
+DER_P8_ADAPTER(ossl_rsa_key_from_pkcs8)
+#define RSA_free generic_RSA_free
+#define d2i_RSAPrivateKey generic_d2i_RSAPrivateKey
+#define d2i_RSAPublicKey generic_d2i_RSAPublicKey
+#define ossl_rsa_key_from_pkcs8 generic_ossl_rsa_key_from_pkcs8
+#ifndef OPENSSL_NO_DH
+DER_FREE_ADAPTER(DH_free)
+DER_D2I_ADAPTER(d2i_DHparams, DH)
+DER_D2I_ADAPTER(d2i_DHxparams, DH)
+DER_P8_ADAPTER(ossl_dh_key_from_pkcs8)
+#define DH_free generic_DH_free
+#define d2i_DHparams generic_d2i_DHparams
+#define d2i_DHxparams generic_d2i_DHxparams
+#define ossl_dh_key_from_pkcs8 generic_ossl_dh_key_from_pkcs8
+#endif
+#ifndef OPENSSL_NO_DSA
+DER_FREE_ADAPTER(DSA_free)
+DER_D2I_ADAPTER(d2i_DSAPrivateKey, DSA)
+DER_D2I_ADAPTER(d2i_DSAPublicKey, DSA)
+DER_D2I_ADAPTER(d2i_DSAparams, DSA)
+DER_P8_ADAPTER(ossl_dsa_key_from_pkcs8)
+#define DSA_free generic_DSA_free
+#define d2i_DSAPrivateKey generic_d2i_DSAPrivateKey
+#define d2i_DSAPublicKey generic_d2i_DSAPublicKey
+#define d2i_DSAparams generic_d2i_DSAparams
+#define ossl_dsa_key_from_pkcs8 generic_ossl_dsa_key_from_pkcs8
+#endif
+#ifndef OPENSSL_NO_EC
+DER_FREE_ADAPTER(EC_KEY_free)
+DER_D2I_ADAPTER(d2i_ECPrivateKey, EC_KEY)
+DER_D2I_ADAPTER(d2i_ECParameters, EC_KEY)
+DER_P8_ADAPTER(ossl_ec_key_from_pkcs8)
+#define EC_KEY_free generic_EC_KEY_free
+#define d2i_ECPrivateKey generic_d2i_ECPrivateKey
+#define d2i_ECParameters generic_d2i_ECParameters
+#define ossl_ec_key_from_pkcs8 generic_ossl_ec_key_from_pkcs8
+#ifndef OPENSSL_NO_ECX
+DER_FREE_ADAPTER(ossl_ecx_key_free)
+DER_P8_ADAPTER(ossl_ecx_key_from_pkcs8)
+#define ossl_ecx_key_free generic_ossl_ecx_key_free
+#define ossl_ecx_key_from_pkcs8 generic_ossl_ecx_key_from_pkcs8
+#endif
+#endif
+#ifndef OPENSSL_NO_ML_KEM
+DER_FREE_ADAPTER(ossl_ml_kem_key_free)
+#define ossl_ml_kem_key_free generic_ossl_ml_kem_key_free
+#endif
+#ifndef OPENSSL_NO_ML_DSA
+DER_FREE_ADAPTER(ossl_ml_dsa_key_free)
+#define ossl_ml_dsa_key_free generic_ossl_ml_dsa_key_free
+#endif
+#ifndef OPENSSL_NO_SLH_DSA
+DER_FREE_ADAPTER(ossl_slh_dsa_key_free)
+#define ossl_slh_dsa_key_free generic_ossl_slh_dsa_key_free
+#endif
+#undef DER_FREE_ADAPTER
+#undef DER_D2I_ADAPTER
+#undef DER_P8_ADAPTER
+
 #ifndef OPENSSL_NO_SLH_DSA
 typedef struct {
     ASN1_OBJECT *oid;
