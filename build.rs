@@ -72,6 +72,8 @@ fn main() {
             );
             String::from_utf8(output.stdout).unwrap().trim().to_owned()
         });
+        // Direct Zig OpenSSL and curl must use the same SDK as this wrapper.
+        env::set_var("SDKROOT", &sdk);
         // Zig supplies libc headers, but CommonCrypto and frameworks live in the SDK.
         cc.push_str(&format!(
             " -isysroot {} -isystem {} -iframework {}",
@@ -98,6 +100,9 @@ fn main() {
         descriptor.cpu(),
         "compression",
     );
+    if env::var_os("CARGO_FEATURE_CURL").is_some() {
+        run_zig(&root, &out, &zig, &zig_target, descriptor.cpu(), "openssl");
+    }
     network::build(&out, descriptor, &compiler, &archiver);
     run_zig(&root, &out, &zig, &zig_target, descriptor.cpu(), "htslib");
     println!(
@@ -144,6 +149,8 @@ fn main() {
     println!("cargo:rerun-if-changed=native/bindings/{}.rs", target);
     println!("cargo:rerun-if-changed=vendor");
     println!("cargo:rerun-if-changed=build.zig");
+    println!("cargo:rerun-if-changed=native/openssl.zig");
+    println!("cargo:rerun-if-changed=native/openssl");
     println!("cargo:rerun-if-changed=build.rs");
 }
 

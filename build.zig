@@ -197,6 +197,9 @@ pub fn build(b: *std.Build) void {
     const compression = b.step("compression", "Build and install compression libraries");
     addCompression(b, compression, target, bzip2, lzma, libdeflate);
 
+    const openssl = b.step("openssl", "Build and install OpenSSL directly in ReleaseSafe");
+    @import("native/openssl.zig").build(b, openssl, target);
+
     const htslib = b.step("htslib", "Build and install HTSlib");
     addHtslib(b, htslib, target, bzip2, lzma, libdeflate, curl, s3, gcs);
 }

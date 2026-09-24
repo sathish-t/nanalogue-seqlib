@@ -28,12 +28,10 @@ the toolchain-only goal has already been reached.
 
 ## Current build and target support
 
-`build.rs` coordinates the native build: it invokes the `compression` step in
-`build.zig`, builds OpenSSL/curl through `native/network.rs`, then invokes the
-`htslib` step in `build.zig`. Direct Zig compilation uses ReleaseSafe;
-OpenSSL still uses its Configure/Make pipeline
-with `-O3`, and curl uses CMake. **Network-enabled consumer builds still require
-CMake, Make and Perl**, in addition to Rust and Zig 0.15.2.
+Direct Zig compilation uses ReleaseSafe. **Network-enabled consumer builds
+still require CMake and Make**, in addition to Rust and Zig 0.15.2, for curl.
+Perl and OpenSSL Configure/Make run only during maintainer oracle regeneration.
+See [golden provenance and callback corrections](openssl/README.md).
 
 Consumer builds accept six targets: x86_64/aarch64 Linux GNU, Linux musl and
 macOS. `native/target_spec.rs`, shared by Cargo, the network pipeline and bindgen,
@@ -46,12 +44,57 @@ Paths below are relative to the repository root. Keep `build.rs` and `build.zig`
 as the conventional Cargo and Zig entry points; their roles are broader than
 building compression libraries alone.
 
+`build.rs` coordinates the following sequence for a network-enabled Cargo
+build. It calls both the Zig build commands and the Rust curl build helper;
+`build.zig` does not call `native/network.rs`.
+
+```diagram
+             ┌──────────────────────────┐
+             │ native/target_spec.rs    │
+             │ Target and ABI mappings  │
+             └────────────┬─────────────┘
+                          ▼
+             ┌──────────────────────────┐
+             │ build.rs                 │
+             │ Coordinates these steps  │
+             └────────────┬─────────────┘
+                          │
+                          ▼
+     1. build.zig: compression
+                          │
+                          ▼
+     2. build.zig: openssl
+          └─ delegates to native/openssl.zig
+                          │
+                          ▼
+     3. native/network.rs: curl via CMake
+                          │
+                          ▼
+     4. build.zig: htslib
+                          │
+                          ▼
+     5. Emit Cargo's final linking settings
+```
+
+Steps 2 and 3 are skipped when the `curl` feature is disabled. The curl build
+uses the OpenSSL and zlib headers/static archives installed by the preceding
+Zig steps in the same `OUT_DIR/native` prefix.
+
+`native/target_spec.rs` is Rust code, not a module imported by Zig. `build.rs`
+uses it to select Zig target/CPU arguments and passes the target descriptor
+and Zig compiler wrappers to `native/network.rs` for CMake. `build.zig`
+receives target, CPU and feature settings through command-line options.
+Within that Zig build, `native/openssl.zig` maps the resolved OS/architecture
+to an OpenSSL configuration; the maintainer oracle uses the corresponding
+Rust mapping. Target metadata describes what to build, not the build sequence.
+
 | File | Responsibility | Naming rationale |
 | --- | --- | --- |
 | `build.rs` | Coordinates native build stages, selects bindings and emits Cargo linker settings. | Conventional Cargo build-script entry point. |
-| `build.zig` | Defines the `compression` and `htslib` build steps and their static libraries. | Conventional Zig build entry point; not limited to compression. |
-| `native/network.rs` | Builds vendored OpenSSL and curl through their current upstream build systems. | Owns the TLS/HTTP dependencies of the native stack. |
-| `native/target_spec.rs` | Specifies architecture, libc, ABI baselines, required CPU features and toolchain mappings. | Describes target requirements rather than performing a build. |
+| `build.zig` | Defines the public Zig build commands and resolves target/options. Delegates OpenSSL build construction to `native/openssl.zig`. | Conventional Zig build entry point; not limited to compression. |
+| `native/openssl.zig` | Implements OpenSSL configuration, source selection, ReleaseSafe compilation, header/archive installation and focused test commands. | Imported implementation of the TLS-library build, not a separate build entry point. |
+| `native/network.rs` | Builds curl with CMake using Zig compiler wrappers and the previously built OpenSSL/zlib installation. | Owns the remaining curl CMake build, not the whole networking stack. |
+| `native/target_spec.rs` | Maps Rust triples to Zig targets/CPU settings and CMake platform names; records ABI requirements, artifact floors and binding availability. | Describes target requirements rather than performing a build. |
 | `tests/native_integration.rs` | Tests C/Rust layouts, feature wiring, library versions, providers and HTTP access. | Covers native integration, not just ABI layout. |
 
 ## Targets and compatibility baselines
@@ -194,6 +237,10 @@ zig test native/inspect-openssl.zig
 # Generate OpenSSL reference inputs. The output directory must not exist.
 zig run native/inspect-openssl.zig -- target/openssl-oracle
 # Append --archives <oracle-install>/lib to compare x86_64 Linux archive members.
+
+# Compare all checked-in golden inputs with that fresh oracle.
+zig run native/materialize-openssl.zig -- target/openssl-oracle --check
+# Omit --check to regenerate; inspect the resulting diff.
 ```
 
 `native/curl-sources.zig` lists all 196 C sources from curl 8.22.0's authoritative
@@ -220,7 +267,9 @@ For pinned OpenSSL 3.6.4 with these options, the seven Configure targets share
 disabled features. The 28 provider-common objects enter through internal
 library dependencies; walking only `sources[libcrypto]` misses them.
 
-Of 119 generated C/header files, 115 are identical across these configurations.
+Of 120 generated C/header/include-fragment files, 116 are identical across these configurations.
+The inventory includes `providers/implementations/include/prov/blake2_params.inc`,
+which the original C/header-only oracle filter omitted.
 The remaining files encode the following differences:
 
 | Generated file | Configuration dimension |

@@ -65,6 +65,12 @@ layout; curl's source, build files, documentation and license notices remain.
 * OpenSSL uses portable C (`no-asm`), static built-in providers, no DSO/engine
   loading, and `/etc/ssl` as the default certificate directory. curl uses only
   our static OpenSSL/zlib; unrelated optional native libraries are disabled.
+* `native/openssl/` records shared generated inputs and deduplicated overlays
+  from the pinned OpenSSL Configure oracle, with deterministic object manifests.
+  Its [provenance](openssl/README.md) documents the direct Zig ReleaseSafe build
+  and local typed callback corrections, including authoritative templates and
+  regeneration. Runtime checks remain enabled; ordinary builds no longer run
+  OpenSSL Configure, Perl or Make. curl still requires CMake/Make.
 * On macOS, curl uses Apple SecTrust unless a CA file, directory or blob is
   explicitly selected. On Linux, the local `hfile_curl_ca` helper chooses a
   readable conventional system CA bundle at runtime for HTSlib, S3 and HTTPS

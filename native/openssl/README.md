@@ -1,8 +1,61 @@
-# Local OpenSSL callback corrections
+# OpenSSL golden inputs — direct ReleaseSafe build
 
-These corrections apply to the vendored OpenSSL 3.6.4 source. Paths below
-are relative to `vendor/openssl`. Consumer builds still use the upstream
-Configure/Make pipeline; source provenance is recorded in `native/SOURCES.md`.
+These inputs come from the vendored OpenSSL **3.6.4**, upstream commit
+`d3c1b1169b3569ff3069e5b399f47b2b28e03d79`. See [source provenance](../SOURCES.md)
+for the download checksum and retained Apache-2.0 license. Generated sources
+are materialized from the locally corrected vendor templates, never hand-edited.
+Ordinary Cargo builds use this tree, not Configure/Perl/Make. curl still uses
+CMake/Make. This directory does not enable additional Rust target bindings.
+
+## Reproduction and layout
+
+From the repository root, with Zig 0.15.2, Perl and Make:
+
+```sh
+zig run native/inspect-openssl.zig -- target/openssl-oracle
+zig run native/materialize-openssl.zig -- target/openssl-oracle --check
+# Omit --check to materialize fresh oracle output after reviewing differences.
+zig build openssl -Dtarget=x86_64-linux-gnu -Dcpu=baseline --prefix target/direct-ssl
+```
+
+Use an oracle directory exactly two levels below the repository root as above;
+upstream embeds relative template paths in generated comments. The inspector
+fixes the epoch, prefix (`/native`) and OpenSSL directory (`/etc/ssl`) and clears
+inherited build flags. It selects `no-shared no-tests no-module no-dso no-engine
+no-asm -fPIC` for all seven configurations.
+
+* `manifest.json` is the complete canonical linux-x86_64 oracle snapshot. Its
+  997 libcrypto and 94 libssl object entries preserve source paths, owning
+  library, per-object definitions/includes and the five compile groups. It
+  includes the 28 provider-common dependency objects.
+* `comparison.json` records seven target settings, disabled-feature equality,
+  inventory equality and generated-file equivalence classes. Its reference
+  `buildinf.h` hashes describe the oracle, **not** direct-build metadata.
+* `common/` contains 116 byte-identical C/header/include-fragment inputs.
+  The earlier C/header-only inventory missed `prov/blake2_params.inc`.
+* `overlays/` contains only eight unique headers: two BN word-size choices,
+  two DSO extensions and four `configuration.h` variants. The directory name
+  is the first member of each equivalence class, not an exclusive target.
+* `../openssl.zig` selects overlays using those equivalence classes and writes
+  `crypto/buildinf.h` with honest Zig 0.15.2 ReleaseSafe/no-asm metadata. It
+  retains target-specific flags (including RC4 type through configuration.h),
+  per-object-before-group include ordering, PIC, threading and built-in
+  providers. It installs public headers and `libssl.a`/`libcrypto.a`.
+
+The build uses the caller's resolved Zig target/CPU/libc floor; it does not
+discover host libraries. macOS needs `--sysroot` or `SDKROOT` for CommonCrypto
+and frameworks, and an explicit deployment-version target matching Rust.
+All nine modeled Linux triples compile and link a provider probe with Zig,
+including ARM's atomic-runtime references without a host libatomic dependency.
+Only x86_64 GNU/musl probes were run; both load default and base providers.
+macOS compilation was attempted but blocked by missing Apple SDK headers.
+Archive member paths/names follow Zig rather than upstream Make; source
+ownership/order remains explicit in the manifest. Linux x86_64 global defined
+symbol sets retain the upstream exports with four additional stack adapter
+entry points. Archive identity is not expected because Zig names its members
+differently and ReleaseSafe generates checked code rather than Configure's -O3.
+
+## Local callback corrections
 
 The initial default/base provider test trapped in `ossl_bsearch` calling
 `ossl_provider_cmp` through
@@ -38,17 +91,7 @@ problem. The additional local corrections are:
 `native/openssl-stack-test.c` tests duplicate keys, missing-key boundaries,
 comparator replacement, nested and concurrent sorts, typed/generated wrapper
 families, NULL slots and deep-copy failure at every position with exact free
-counts. After an all-features Cargo build, set `prefix` to its `OUT_DIR/native`
-directory and compile the test against that installation:
-
-```sh
-zig cc -target x86_64-linux-gnu -mcpu=baseline -O2 \
-  -fsanitize=undefined -fsanitize-trap=undefined -I"$prefix/include" \
-  native/openssl-stack-test.c "$prefix/lib/libssl.a" "$prefix/lib/libcrypto.a" \
-  -pthread -ldl -o target/openssl-stack-test
-target/openssl-stack-test
-```
-
+counts. Run `zig build test-openssl -Dtarget=x86_64-linux-gnu -Dcpu=baseline`.
 `tests/native_tls.py` tests local certificate rejection, CA precedence, hashed
 CA directories, HTTPS proxying, independently verified S3 signing and GCS
 headers through the Cargo-built native libraries. It requires Python and a

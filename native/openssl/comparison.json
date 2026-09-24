@@ -1,0 +1,344 @@
+{
+  "common_generated_files": [
+    "include/openssl/asn1.h",
+    "include/openssl/asn1t.h",
+    "include/openssl/bio.h",
+    "include/openssl/cmp.h",
+    "include/openssl/cms.h",
+    "include/openssl/comp.h",
+    "include/openssl/conf.h",
+    "include/openssl/core_names.h",
+    "include/openssl/crmf.h",
+    "include/openssl/crypto.h",
+    "include/openssl/ct.h",
+    "include/openssl/err.h",
+    "include/openssl/ess.h",
+    "include/openssl/fipskey.h",
+    "include/openssl/lhash.h",
+    "include/openssl/ocsp.h",
+    "include/openssl/opensslv.h",
+    "include/openssl/pkcs12.h",
+    "include/openssl/pkcs7.h",
+    "include/openssl/safestack.h",
+    "include/openssl/srp.h",
+    "include/openssl/ssl.h",
+    "include/openssl/ui.h",
+    "include/openssl/x509.h",
+    "include/openssl/x509_acert.h",
+    "include/openssl/x509_vfy.h",
+    "include/openssl/x509v3.h",
+    "providers/common/der/der_digests_gen.c",
+    "providers/common/der/der_dsa_gen.c",
+    "providers/common/der/der_ec_gen.c",
+    "providers/common/der/der_ecx_gen.c",
+    "providers/common/der/der_hkdf_gen.c",
+    "providers/common/der/der_ml_dsa_gen.c",
+    "providers/common/der/der_rsa_gen.c",
+    "providers/common/der/der_slh_dsa_gen.c",
+    "providers/common/der/der_sm2_gen.c",
+    "providers/common/der/der_wrap_gen.c",
+    "providers/common/include/prov/der_digests.h",
+    "providers/common/include/prov/der_dsa.h",
+    "providers/common/include/prov/der_ec.h",
+    "providers/common/include/prov/der_ecx.h",
+    "providers/common/include/prov/der_hkdf.h",
+    "providers/common/include/prov/der_ml_dsa.h",
+    "providers/common/include/prov/der_rsa.h",
+    "providers/common/include/prov/der_slh_dsa.h",
+    "providers/common/include/prov/der_sm2.h",
+    "providers/common/include/prov/der_wrap.h",
+    "providers/implementations/asymciphers/rsa_enc.c",
+    "providers/implementations/asymciphers/sm2_enc.c",
+    "providers/implementations/ciphers/cipher_chacha20_poly1305.c",
+    "providers/implementations/ciphers/ciphercommon.c",
+    "providers/implementations/ciphers/ciphercommon_ccm.c",
+    "providers/implementations/ciphers/ciphercommon_gcm.c",
+    "providers/implementations/digests/blake2_prov.c",
+    "providers/implementations/digests/digestcommon.c",
+    "providers/implementations/digests/sha3_prov.c",
+    "providers/implementations/encode_decode/decode_der2key.c",
+    "providers/implementations/encode_decode/decode_epki2pki.c",
+    "providers/implementations/encode_decode/decode_pem2der.c",
+    "providers/implementations/encode_decode/decode_pvk2key.c",
+    "providers/implementations/encode_decode/decode_spki2typespki.c",
+    "providers/implementations/encode_decode/encode_key2any.c",
+    "providers/implementations/encode_decode/encode_key2ms.c",
+    "providers/implementations/exchange/dh_exch.c",
+    "providers/implementations/exchange/ecdh_exch.c",
+    "providers/implementations/exchange/ecx_exch.c",
+    "providers/implementations/include/prov/blake2_params.inc",
+    "providers/implementations/kdfs/argon2.c",
+    "providers/implementations/kdfs/hkdf.c",
+    "providers/implementations/kdfs/hmacdrbg_kdf.c",
+    "providers/implementations/kdfs/kbkdf.c",
+    "providers/implementations/kdfs/krb5kdf.c",
+    "providers/implementations/kdfs/pbkdf1.c",
+    "providers/implementations/kdfs/pbkdf2.c",
+    "providers/implementations/kdfs/pkcs12kdf.c",
+    "providers/implementations/kdfs/pvkkdf.c",
+    "providers/implementations/kdfs/scrypt.c",
+    "providers/implementations/kdfs/sshkdf.c",
+    "providers/implementations/kdfs/sskdf.c",
+    "providers/implementations/kdfs/tls1_prf.c",
+    "providers/implementations/kdfs/x942kdf.c",
+    "providers/implementations/kem/ec_kem.c",
+    "providers/implementations/kem/ecx_kem.c",
+    "providers/implementations/kem/ml_kem_kem.c",
+    "providers/implementations/kem/rsa_kem.c",
+    "providers/implementations/keymgmt/ecx_kmgmt.c",
+    "providers/implementations/keymgmt/lms_kmgmt.c",
+    "providers/implementations/keymgmt/ml_dsa_kmgmt.c",
+    "providers/implementations/keymgmt/ml_kem_kmgmt.c",
+    "providers/implementations/keymgmt/mlx_kmgmt.c",
+    "providers/implementations/keymgmt/slh_dsa_kmgmt.c",
+    "providers/implementations/keymgmt/template_kmgmt.c",
+    "providers/implementations/macs/cmac_prov.c",
+    "providers/implementations/macs/gmac_prov.c",
+    "providers/implementations/macs/hmac_prov.c",
+    "providers/implementations/macs/kmac_prov.c",
+    "providers/implementations/macs/poly1305_prov.c",
+    "providers/implementations/macs/siphash_prov.c",
+    "providers/implementations/rands/drbg_ctr.c",
+    "providers/implementations/rands/drbg_hash.c",
+    "providers/implementations/rands/drbg_hmac.c",
+    "providers/implementations/rands/fips_crng_test.c",
+    "providers/implementations/rands/seed_src.c",
+    "providers/implementations/rands/seed_src_jitter.c",
+    "providers/implementations/rands/test_rng.c",
+    "providers/implementations/signature/dsa_sig.c",
+    "providers/implementations/signature/ecdsa_sig.c",
+    "providers/implementations/signature/eddsa_sig.c",
+    "providers/implementations/signature/ml_dsa_sig.c",
+    "providers/implementations/signature/rsa_sig.c",
+    "providers/implementations/signature/slh_dsa_sig.c",
+    "providers/implementations/signature/sm2_sig.c",
+    "providers/implementations/skeymgmt/generic.c",
+    "providers/implementations/storemgmt/file_store.c",
+    "providers/implementations/storemgmt/file_store_any2obj.c",
+    "providers/implementations/storemgmt/winstore_store.c"
+  ],
+  "compile_groups_identical": true,
+  "disabled_options_identical": true,
+  "openssl_version": "MAJOR=3\nMINOR=6\nPATCH=4\nPRE_RELEASE_TAG=\nBUILD_METADATA=\nRELEASE_DATE=\"25 Aug 2026\"\nSHLIB_VERSION=3\n",
+  "options": [
+    "no-shared",
+    "no-tests",
+    "no-module",
+    "no-dso",
+    "no-engine",
+    "no-asm",
+    "-fPIC"
+  ],
+  "source_differences_from_linux_x86_64": {
+    "darwin64-arm64-cc": {
+      "libcrypto": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 997,
+        "removed": []
+      },
+      "libssl": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 94,
+        "removed": []
+      }
+    },
+    "darwin64-x86_64-cc": {
+      "libcrypto": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 997,
+        "removed": []
+      },
+      "libssl": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 94,
+        "removed": []
+      }
+    },
+    "linux-aarch64": {
+      "libcrypto": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 997,
+        "removed": []
+      },
+      "libssl": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 94,
+        "removed": []
+      }
+    },
+    "linux-armv4": {
+      "libcrypto": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 997,
+        "removed": []
+      },
+      "libssl": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 94,
+        "removed": []
+      }
+    },
+    "linux-ppc64le": {
+      "libcrypto": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 997,
+        "removed": []
+      },
+      "libssl": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 94,
+        "removed": []
+      }
+    },
+    "linux-x86_64": {
+      "libcrypto": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 997,
+        "removed": []
+      },
+      "libssl": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 94,
+        "removed": []
+      }
+    },
+    "linux64-riscv64": {
+      "libcrypto": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 997,
+        "removed": []
+      },
+      "libssl": {
+        "added": [],
+        "changed_object_settings": [],
+        "count": 94,
+        "removed": []
+      }
+    }
+  },
+  "target_settings": {
+    "darwin64-arm64-cc": {
+      "bn_ops": "SIXTY_FOUR_BIT_LONG",
+      "ex_libs": "",
+      "lib_cppflags": "-DL_ENDIAN",
+      "thread_scheme": "pthreads"
+    },
+    "darwin64-x86_64-cc": {
+      "bn_ops": "SIXTY_FOUR_BIT_LONG",
+      "ex_libs": "",
+      "lib_cppflags": "-DL_ENDIAN",
+      "thread_scheme": "pthreads"
+    },
+    "linux-aarch64": {
+      "bn_ops": "SIXTY_FOUR_BIT_LONG RC4_CHAR",
+      "ex_libs": "-ldl -pthread",
+      "lib_cppflags": "-DOPENSSL_USE_NODELETE",
+      "thread_scheme": "pthreads"
+    },
+    "linux-armv4": {
+      "bn_ops": "BN_LLONG RC4_CHAR",
+      "ex_libs": "-ldl -pthread -latomic",
+      "lib_cppflags": "-DOPENSSL_USE_NODELETE",
+      "thread_scheme": "pthreads"
+    },
+    "linux-ppc64le": {
+      "bn_ops": "SIXTY_FOUR_BIT_LONG RC4_CHAR",
+      "ex_libs": "-ldl -pthread",
+      "lib_cppflags": "-DOPENSSL_USE_NODELETE -DL_ENDIAN",
+      "thread_scheme": "pthreads"
+    },
+    "linux-x86_64": {
+      "bn_ops": "SIXTY_FOUR_BIT_LONG",
+      "ex_libs": "-ldl -pthread",
+      "lib_cppflags": "-DOPENSSL_USE_NODELETE -DL_ENDIAN",
+      "thread_scheme": "pthreads"
+    },
+    "linux64-riscv64": {
+      "bn_ops": "SIXTY_FOUR_BIT_LONG RC4_CHAR",
+      "ex_libs": "-ldl -pthread",
+      "lib_cppflags": "-DOPENSSL_USE_NODELETE",
+      "thread_scheme": "pthreads"
+    }
+  },
+  "varying_generated_files": {
+    "crypto/buildinf.h": [
+      [
+        "linux-x86_64"
+      ],
+      [
+        "linux-aarch64"
+      ],
+      [
+        "linux-armv4"
+      ],
+      [
+        "linux-ppc64le"
+      ],
+      [
+        "linux64-riscv64"
+      ],
+      [
+        "darwin64-x86_64-cc"
+      ],
+      [
+        "darwin64-arm64-cc"
+      ]
+    ],
+    "include/crypto/bn_conf.h": [
+      [
+        "linux-x86_64",
+        "linux-aarch64",
+        "linux-ppc64le",
+        "linux64-riscv64",
+        "darwin64-x86_64-cc",
+        "darwin64-arm64-cc"
+      ],
+      [
+        "linux-armv4"
+      ]
+    ],
+    "include/crypto/dso_conf.h": [
+      [
+        "linux-x86_64",
+        "linux-aarch64",
+        "linux-armv4",
+        "linux-ppc64le",
+        "linux64-riscv64"
+      ],
+      [
+        "darwin64-x86_64-cc",
+        "darwin64-arm64-cc"
+      ]
+    ],
+    "include/openssl/configuration.h": [
+      [
+        "linux-x86_64"
+      ],
+      [
+        "linux-aarch64",
+        "linux-ppc64le",
+        "linux64-riscv64"
+      ],
+      [
+        "linux-armv4"
+      ],
+      [
+        "darwin64-x86_64-cc",
+        "darwin64-arm64-cc"
+      ]
+    ]
+  }
+}

@@ -1,4 +1,4 @@
-//! Build the vendored TLS and HTTP stack.
+//! Build vendored curl against the directly compiled TLS stack.
 
 use std::env;
 use std::fs;
@@ -8,11 +8,10 @@ use std::process::Command;
 
 use crate::native_target::{Os, Target};
 
-/// Builds static OpenSSL and curl archives into `out/native`.
+/// Builds static curl into `out/native`, using its existing OpenSSL archives.
 ///
 /// `compiler` and `archiver` are the project-created wrappers around the
-/// pinned Zig `cc` and `ar`; in particular, this code never asks CMake or
-/// OpenSSL to discover a host compiler or a host copy of either library.
+/// pinned Zig `cc` and `ar`; CMake never discovers a host compiler or OpenSSL.
 pub fn build(out: &Path, target: Target, compiler: &Path, archiver: &Path) {
     if env::var_os("CARGO_FEATURE_CURL").is_none() {
         return;
@@ -26,20 +25,14 @@ pub fn build(out: &Path, target: Target, compiler: &Path, archiver: &Path) {
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let prefix = out.join("native");
-    let openssl_build = out.join("openssl-build");
     let curl_build = out.join("curl-build");
     let ranlib_wrapper = out.join("zig-ranlib.sh");
     let jobs = env::var("NUM_JOBS").unwrap_or_else(|_| "1".into());
-    let openssl_platform = target.openssl();
     let (system, processor) = target.cmake();
 
-    fresh_dir(&openssl_build);
     fs::create_dir_all(&prefix).expect("create native installation prefix");
 
-    // OpenSSL's generated makefiles use RANLIB as a shell fragment. `ar s`
-    // creates the index and keeps every archive operation on the supplied Zig
-    // archiver rather than silently finding the host ranlib.
-    let ranlib = format!("{} s", shell_quote(archiver));
+    // Keep curl's archive index operation on the supplied Zig archiver.
     fs::write(
         &ranlib_wrapper,
         format!("#!/bin/sh\nexec {} s \"$@\"\n", shell_quote(archiver)),
@@ -47,38 +40,6 @@ pub fn build(out: &Path, target: Target, compiler: &Path, archiver: &Path) {
     .expect("write Zig ranlib wrapper");
     fs::set_permissions(&ranlib_wrapper, fs::Permissions::from_mode(0o755))
         .expect("make Zig ranlib wrapper executable");
-    let mut configure = Command::new("perl");
-    configure
-        .current_dir(&openssl_build)
-        .arg(root.join("vendor/openssl/Configure"))
-        .arg(openssl_platform)
-        .arg(format!("--prefix={}", prefix.display()))
-        .arg("--libdir=lib")
-        .arg("--openssldir=/etc/ssl")
-        .args([
-            "no-shared",
-            "no-tests",
-            "no-module",
-            "no-dso",
-            "no-engine",
-            "no-asm",
-            "-fPIC",
-        ])
-        .env("CC", compiler)
-        .env("AR", archiver)
-        .env("RANLIB", &ranlib);
-    run(&mut configure, "configure OpenSSL");
-
-    let mut make_ssl = Command::new("make");
-    make_ssl
-        .current_dir(&openssl_build)
-        .arg(format!("-j{jobs}"))
-        .arg("install_dev")
-        .env("CC", compiler)
-        .env("AR", archiver)
-        .env("RANLIB", &ranlib);
-    run(&mut make_ssl, "build and install OpenSSL");
-
     fresh_dir(&curl_build);
     let mut cmake = Command::new("cmake");
     cmake

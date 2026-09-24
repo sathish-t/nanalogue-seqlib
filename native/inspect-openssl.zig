@@ -50,7 +50,7 @@ const extract =
     \\    $walk->($library, "", "");
     \\    $result{libraries}{$library} = \%objects;
     \\}
-    \\$result{generated} = [sort grep { /\.(c|h)$/ } keys %{$unified_info{generate}}];
+    \\$result{generated} = [sort grep { /\.(c|h|inc)$/ } keys %{$unified_info{generate}}];
     \\$result{target} = {map {$_ => $target{$_}} qw(bn_ops lib_cppflags thread_scheme ex_libs)};
     \\$result{disabled} = [sort keys %disabled];
     \\print JSON::PP->new->canonical->encode(\%result);

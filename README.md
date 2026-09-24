@@ -15,9 +15,14 @@ git clone https://github.com/sathish-t/nanalogue-seqlib.git
 ## Requirements
 
 Install Rust and **Zig 0.15.2**. Default/network-enabled builds also require
-CMake (3.18+), Make and Perl. On macOS, install the Apple command-line tools/SDK
+CMake (3.18+) and Make. On macOS, install the Apple command-line tools/SDK
 for native OS headers and final linking. The supported hosts are Linux and macOS; supported targets
 are x86_64 and ARM64 Linux GNU/musl and macOS.
+
+OpenSSL is compiled directly by Zig in ReleaseSafe from checked-in generated
+inputs. Perl and OpenSSL Configure/Make are maintainer-only tools; curl still
+uses CMake/Make. See [native build provenance](native/openssl/README.md) for the
+documented vendored callback corrections and regeneration procedure.
 
 ```sh
 # Optional installer; requires curl, minisign, and xz/tar.

@@ -1,5 +1,5 @@
 name: Vendored native build tools
-description: Install the pinned Zig compiler and upstream build generators
+description: Install the pinned Zig compiler and curl build tools
 runs:
   using: composite
   steps:
@@ -7,7 +7,7 @@ runs:
       run: |
         if [[ "$RUNNER_OS" == Linux ]]; then
           sudo apt-get update
-          sudo apt-get install --yes cmake make perl
+          sudo apt-get install --yes cmake make
           bash native/install-minisign.sh
           export PATH="$HOME/.local/bin:$PATH"
         else
