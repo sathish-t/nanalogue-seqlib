@@ -1376,7 +1376,7 @@ static void cleanup(hFILE_s3 *fp) {
     cleanup_local(fp);
 }
 
-static size_t response_callback(void *contents, size_t size, size_t nmemb, void *userp) {
+static size_t response_callback(char *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     kstring_t *resp = (kstring_t *)userp;
 
@@ -1645,7 +1645,7 @@ static int complete_upload(hFILE_s3 *fp, kstring_t *resp) {
 }
 
 
-static size_t upload_callback(void *ptr, size_t size, size_t nmemb, void *stream) {
+static size_t upload_callback(char *ptr, size_t size, size_t nmemb, void *stream) {
     size_t realsize = size * nmemb;
     hFILE_s3 *fp = (hFILE_s3 *)stream;
     size_t read_length;

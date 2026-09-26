@@ -47,9 +47,12 @@ layout; curl's source, build files, documentation and license notices remain.
 
 ## Local build choices and patches
 
-* `build.zig` builds zlib, bzip2, liblzma, libdeflate, htscodecs and HTSlib in
-  ReleaseSafe mode. OpenSSL retains its upstream Configure/Make pipeline and
-  curl retains its CMake pipeline; both use the pinned Zig compiler wrappers.
+* `build.zig` builds every vendored native library directly in ReleaseSafe.
+  `native/curl.zig` uses the committed 196-source manifest and the auditable
+  OS/libc/word-size contract in `native/curl_config.h`. The pinned curl header
+  reports `8.22.0-DEV` (numeric version `0x081600`); it is not rewritten.
+  `easyoptions.c` remains the checked-in upstream input. Consumer builds parse
+  no Makefiles, run no probes, and generate no public `curlbuild.h`.
 * Classic zlib replaces zlib-ng's compatibility implementation. No formats or
   zlib ABI entry points used by HTSlib are removed.
 * `vendor/xz/config.h` originated in lzma-sys's portable configuration and is
@@ -70,7 +73,15 @@ layout; curl's source, build files, documentation and license notices remain.
   Its [provenance](openssl/README.md) documents the direct Zig ReleaseSafe build
   and local typed callback corrections, including authoritative templates and
   regeneration. Runtime checks remain enabled; ordinary builds no longer run
-  OpenSSL Configure, Perl or Make. curl still requires CMake/Make.
+  OpenSSL Configure, Perl or Make. The curl CMake oracle in
+  `native/inspect-curl.sh` is also maintainer-only.
+* HTSlib's `hfile_libcurl.c` header callback and `hfile_s3.c` response/upload
+  callbacks now take `char *`, matching curl's public read/write callback types.
+  Passing the former `void *` callbacks through curl's variadic setopt API
+  caused an incompatible-function-pointer ReleaseSafe trap at
+  `cw_out_cb_write` during S3 response headers. No sanitizer is disabled and
+  no curl vendor source is changed. `tests/native_tls.py` exercises that S3
+  path; `tests/native_curl.py` covers HTTP/HTTPS/FTP/FTPS behavior separately.
 * On macOS, curl uses Apple SecTrust unless a CA file, directory or blob is
   explicitly selected. On Linux, the local `hfile_curl_ca` helper chooses a
   readable conventional system CA bundle at runtime for HTSlib, S3 and HTTPS

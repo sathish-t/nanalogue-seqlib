@@ -200,6 +200,9 @@ pub fn build(b: *std.Build) void {
     const openssl = b.step("openssl", "Build and install OpenSSL directly in ReleaseSafe");
     @import("native/openssl.zig").build(b, openssl, target);
 
+    const curl_step = b.step("curl", "Build and install curl directly in ReleaseSafe");
+    @import("native/curl.zig").build(b, curl_step, target);
+
     const htslib = b.step("htslib", "Build and install HTSlib");
     addHtslib(b, htslib, target, bzip2, lzma, libdeflate, curl, s3, gcs);
 }

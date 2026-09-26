@@ -149,10 +149,20 @@ fn vendored_curl_is_8_22() {
             current = current.add(1);
         }
     }
-    assert_eq!(
-        features.contains(&"AppleSecTrust"),
-        cfg!(target_os = "macos")
-    );
+    let mut expected_features = vec![
+        "alt-svc",
+        "AsynchDNS",
+        "HSTS",
+        "HTTPS-proxy",
+        "IPv6",
+        "Largefile",
+        "libz",
+    ];
+    if cfg!(target_os = "macos") {
+        expected_features.push("AppleSecTrust");
+    }
+    expected_features.extend(["SSL", "threadsafe", "UnixSockets"]);
+    assert_eq!(features, expected_features);
 
     const SSL_AND_ZLIB: c_int = (1 << 2) | (1 << 3);
     const DISABLED_DEPENDENCIES: c_int =

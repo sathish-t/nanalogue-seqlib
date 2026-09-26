@@ -146,8 +146,12 @@ def main():
             (ca_dir / "ca.pem").write_bytes(cert.read_bytes())
             subprocess.run(["openssl", "rehash", str(ca_dir)], check=True)
             check("SSL_CERT_DIR", SSL_CERT_DIR=str(ca_dir))
+            check("CA directory remains independent of a bad CA file",
+                  SSL_CERT_FILE=str(tmp / "absent"), SSL_CERT_DIR=str(ca_dir))
             proxy_env = dict(https_proxy=f"https://127.0.0.1:{proxy.server_port}",
                              NO_PROXY="", SSL_CERT_FILE=str(cert))
+            check("HTTPS proxy rejects untrusted certificate", ok=False,
+                  https_proxy=proxy_env["https_proxy"], NO_PROXY="")
             check("HTTPS proxy plus HTTPS origin", **proxy_env)
             check("S3 SigV4 over TLS", address="s3://bucket/test.bam", SSL_CERT_FILE=str(cert),
                   HTS_S3_HOST=f"127.0.0.1:{origin.server_port}", HTS_S3_ADDRESS_STYLE="path",

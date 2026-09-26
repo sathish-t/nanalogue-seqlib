@@ -1,12 +1,9 @@
 #[allow(dead_code)] // Artifact metadata is also used by maintainer-only tools.
 #[path = "native/target_spec.rs"]
 mod native_target;
-#[path = "native/network.rs"]
-mod network;
 
 use std::{
     env, fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -26,15 +23,6 @@ fn main() {
         "this native build requires Zig 0.15.2"
     );
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let compiler = out.join("zig-cc.sh");
-    let archiver = out.join("zig-ar.sh");
-    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
-    let mut cc = format!(
-        "{} cc -target {} -mcpu={}",
-        quote(&zig),
-        zig_target,
-        descriptor.cpu()
-    );
     if target.contains("apple") {
         let deployment = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| {
             let output = Command::new(env::var_os("RUSTC").unwrap())
@@ -52,15 +40,9 @@ fn main() {
                 .unwrap()
                 .to_owned()
         });
-        // Keep Zig, CMake and Rust on the same minimum macOS version.
+        // Keep Zig and Rust on the same minimum macOS version.
         env::set_var("MACOSX_DEPLOYMENT_TARGET", &deployment);
         zig_target = format!("{}.{}", zig_target, deployment);
-        cc = format!(
-            "{} cc -target {} -mcpu={}",
-            quote(&zig),
-            quote(&zig_target),
-            descriptor.cpu()
-        );
         let sdk = env::var("SDKROOT").unwrap_or_else(|_| {
             let output = Command::new("xcrun")
                 .args(["--sdk", "macosx", "--show-sdk-path"])
@@ -72,19 +54,8 @@ fn main() {
             );
             String::from_utf8(output.stdout).unwrap().trim().to_owned()
         });
-        // Direct Zig OpenSSL and curl must use the same SDK as this wrapper.
+        // CommonCrypto and frameworks live in the SDK, not Zig's libc headers.
         env::set_var("SDKROOT", &sdk);
-        // Zig supplies libc headers, but CommonCrypto and frameworks live in the SDK.
-        cc.push_str(&format!(
-            " -isysroot {} -isystem {} -iframework {}",
-            quote(&sdk),
-            quote(&format!("{}/usr/include", sdk)),
-            quote(&format!("{}/System/Library/Frameworks", sdk))
-        ));
-    }
-    for (path, command) in [(&compiler, cc), (&archiver, format!("{} ar", quote(&zig)))] {
-        fs::write(path, format!("#!/bin/sh\nexec {} \"$@\"\n", command)).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
     fs::copy(
         format!("native/bindings/{}.rs", target),
@@ -102,8 +73,8 @@ fn main() {
     );
     if env::var_os("CARGO_FEATURE_CURL").is_some() {
         run_zig(&root, &out, &zig, &zig_target, descriptor.cpu(), "openssl");
+        run_zig(&root, &out, &zig, &zig_target, descriptor.cpu(), "curl");
     }
-    network::build(&out, descriptor, &compiler, &archiver);
     run_zig(&root, &out, &zig, &zig_target, descriptor.cpu(), "htslib");
     println!(
         "cargo:rustc-link-search=native={}/native/lib",
@@ -143,7 +114,14 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=SDKROOT");
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
-    for file in ["network.rs", "target_spec.rs", "wrapper.c", "wrapper.h"] {
+    for file in [
+        "target_spec.rs",
+        "wrapper.c",
+        "wrapper.h",
+        "curl.zig",
+        "curl_config.h",
+        "curl-sources.zig",
+    ] {
         println!("cargo:rerun-if-changed=native/{}", file);
     }
     println!("cargo:rerun-if-changed=native/bindings/{}.rs", target);

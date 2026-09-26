@@ -4,8 +4,8 @@ These inputs come from the vendored OpenSSL **3.6.4**, upstream commit
 `d3c1b1169b3569ff3069e5b399f47b2b28e03d79`. See [source provenance](../SOURCES.md)
 for the download checksum and retained Apache-2.0 license. Generated sources
 are materialized from the locally corrected vendor templates, never hand-edited.
-Ordinary Cargo builds use this tree, not Configure/Perl/Make. curl still uses
-CMake/Make. This directory does not enable additional Rust target bindings.
+Ordinary Cargo builds use this tree, not Configure/Perl/Make. curl also compiles
+directly with Zig. This directory does not enable additional Rust target bindings.
 
 ## Reproduction and layout
 

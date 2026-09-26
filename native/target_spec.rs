@@ -117,25 +117,6 @@ impl Target {
         }
     }
 
-    pub fn cmake(self) -> (&'static str, &'static str) {
-        let processor = match self.arch {
-            Arch::X86_64 => "x86_64",
-            Arch::Aarch64 if self.os == Os::Macos => "arm64",
-            Arch::Aarch64 => "aarch64",
-            Arch::Armv7 | Arch::Armv6 => "arm",
-            Arch::Powerpc64le => "ppc64le",
-            Arch::Riscv64gc => "riscv64",
-        };
-        (
-            if self.os == Os::Macos {
-                "Darwin"
-            } else {
-                "Linux"
-            },
-            processor,
-        )
-    }
-
     pub fn has_bindings(self) -> bool {
         matches!(self.arch, Arch::X86_64 | Arch::Aarch64)
     }

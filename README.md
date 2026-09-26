@@ -14,15 +14,16 @@ git clone https://github.com/sathish-t/nanalogue-seqlib.git
 
 ## Requirements
 
-Install Rust and **Zig 0.15.2**. Default/network-enabled builds also require
-CMake (3.18+) and Make. On macOS, install the Apple command-line tools/SDK
+Install Rust and **Zig 0.15.2**, plus a final Rust target linker.
+On macOS, install the Apple command-line tools/SDK
 for native OS headers and final linking. The supported hosts are Linux and macOS; supported targets
 are x86_64 and ARM64 Linux GNU/musl and macOS.
 
-OpenSSL is compiled directly by Zig in ReleaseSafe from checked-in generated
-inputs. Perl and OpenSSL Configure/Make are maintainer-only tools; curl still
-uses CMake/Make. See [native build provenance](native/openssl/README.md) for the
-documented vendored callback corrections and regeneration procedure.
+All vendored native libraries, including curl and OpenSSL, compile directly
+with Zig in ReleaseSafe. Ordinary builds do not require CMake, Make or Perl.
+Those tools are used only for optional maintainer comparisons with upstream
+builds. See [native build maintenance](native/BUILDING.md) for configuration,
+vendored callback corrections and regeneration procedures.
 
 ```sh
 # Optional installer; requires curl, minisign, and xz/tar.
@@ -94,9 +95,8 @@ The tree must show your local fork path. Keep the downstream manifest and lockfi
 ## Features and development
 
 Default features enable bzip2, lzma, and HTTP/HTTPS/FTP access through curl.
-If you do not need these capabilities, disable default features. This smaller
-build requires only Rust and Zig (plus a final Rust target linker), not
-CMake/Make/Perl:
+If you do not need these capabilities, disable default features to build fewer
+native libraries:
 
 ```toml
 [dependencies]

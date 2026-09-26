@@ -7,8 +7,8 @@
 # are fast. Designed to be idempotent: a warm run skips every install and only
 # re-checks that the cache is in place.
 #
-# Native libraries are copied into vendor/. Consumer builds need Zig, CMake,
-# Make and Perl, but neither native development packages nor libclang.
+# Native libraries are copied into vendor/. Consumer builds need Rust and Zig,
+# plus final-link facilities, but no CMake, Make, Perl or libclang.
 set -euo pipefail
 
 step() { printf '\n\033[1m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*"; }
@@ -20,9 +20,9 @@ step() { printf '\n\033[1m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*"; }
 # shellcheck disable=SC1091
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
-# --- Upstream curl/OpenSSL and verified Zig build tools -----------------
+# --- Verified Zig installer tools -------------------------------------
 need_apt=()
-for pkg in cmake make minisign perl; do
+for pkg in minisign; do
     if ! dpkg -s "$pkg" >/dev/null 2>&1; then
         need_apt+=("$pkg")
     fi

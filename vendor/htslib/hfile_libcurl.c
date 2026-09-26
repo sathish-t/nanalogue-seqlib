@@ -806,7 +806,7 @@ static size_t recv_callback(char *ptr, size_t size, size_t nmemb, void *fpv)
 }
 
 
-static size_t header_callback(void *contents, size_t size, size_t nmemb,
+static size_t header_callback(char *contents, size_t size, size_t nmemb,
                               void *userp)
 {
     size_t realsize = size * nmemb;

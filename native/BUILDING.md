@@ -17,24 +17,20 @@ requirements, see the [README](../README.md#requirements).
 
 ## Goal
 
-The goal is to build this crate and its vendored native libraries using only
+This crate and its vendored native libraries build using only
 the Rust and Zig toolchains, apart from unavoidable platform SDK and linking
-facilities such as the macOS SDK. This would remove CMake, Make and Perl from
-consumer builds without replacing the vendored libraries or losing features.
-The work is exploratory: we are still assessing feasibility and maintenance
-cost, and may achieve the goal fully or stop at a useful partial implementation.
-The current requirements below describe what works today, not a promise that
-the toolchain-only goal has already been reached.
+facilities such as the macOS SDK. CMake, Make and Perl are confined to optional
+maintainer oracle comparisons; they are not consumer build requirements.
 
 ## Current build and target support
 
-Direct Zig compilation uses ReleaseSafe. **Network-enabled consumer builds
-still require CMake and Make**, in addition to Rust and Zig 0.15.2, for curl.
-Perl and OpenSSL Configure/Make run only during maintainer oracle regeneration.
+Direct Zig compilation uses ReleaseSafe, including curl and OpenSSL.
+Perl and OpenSSL Configure/Make run only during maintainer oracle regeneration;
+curl's CMake/Make comparison is likewise maintainer-only.
 See [golden provenance and callback corrections](openssl/README.md).
 
 Consumer builds accept six targets: x86_64/aarch64 Linux GNU, Linux musl and
-macOS. `native/target_spec.rs`, shared by Cargo, the network pipeline and bindgen,
+macOS. `native/target_spec.rs`, shared by Cargo, validation tools and bindgen,
 also models the historical artifact matrix below. Modeling a target does not
 enable it or establish runtime compatibility.
 
@@ -45,8 +41,7 @@ as the conventional Cargo and Zig entry points; their roles are broader than
 building compression libraries alone.
 
 `build.rs` coordinates the following sequence for a network-enabled Cargo
-build. It calls both the Zig build commands and the Rust curl build helper;
-`build.zig` does not call `native/network.rs`.
+build. Every native build stage is a Zig build command.
 
 ```diagram
              ┌──────────────────────────┐
@@ -67,7 +62,8 @@ build. It calls both the Zig build commands and the Rust curl build helper;
           └─ delegates to native/openssl.zig
                           │
                           ▼
-     3. native/network.rs: curl via CMake
+     3. build.zig: curl
+          └─ delegates to native/curl.zig
                           │
                           ▼
      4. build.zig: htslib
@@ -81,8 +77,7 @@ uses the OpenSSL and zlib headers/static archives installed by the preceding
 Zig steps in the same `OUT_DIR/native` prefix.
 
 `native/target_spec.rs` is Rust code, not a module imported by Zig. `build.rs`
-uses it to select Zig target/CPU arguments and passes the target descriptor
-and Zig compiler wrappers to `native/network.rs` for CMake. `build.zig`
+uses it to select Zig target/CPU arguments. `build.zig`
 receives target, CPU and feature settings through command-line options.
 Within that Zig build, `native/openssl.zig` maps the resolved OS/architecture
 to an OpenSSL configuration; the maintainer oracle uses the corresponding
@@ -93,8 +88,8 @@ Rust mapping. Target metadata describes what to build, not the build sequence.
 | `build.rs` | Coordinates native build stages, selects bindings and emits Cargo linker settings. | Conventional Cargo build-script entry point. |
 | `build.zig` | Defines the public Zig build commands and resolves target/options. Delegates OpenSSL build construction to `native/openssl.zig`. | Conventional Zig build entry point; not limited to compression. |
 | `native/openssl.zig` | Implements OpenSSL configuration, source selection, ReleaseSafe compilation, header/archive installation and focused test commands. | Imported implementation of the TLS-library build, not a separate build entry point. |
-| `native/network.rs` | Builds curl with CMake using Zig compiler wrappers and the previously built OpenSSL/zlib installation. | Owns the remaining curl CMake build, not the whole networking stack. |
-| `native/target_spec.rs` | Maps Rust triples to Zig targets/CPU settings and CMake platform names; records ABI requirements, artifact floors and binding availability. | Describes target requirements rather than performing a build. |
+| `native/curl.zig` | Builds curl from `curl-sources.zig` and `curl_config.h`, using the previously installed OpenSSL/zlib headers. | Owns curl compilation and static/header installation. |
+| `native/target_spec.rs` | Maps Rust triples to Zig targets/CPU settings; records ABI requirements, artifact floors and binding availability. | Describes target requirements rather than performing a build. |
 | `tests/native_integration.rs` | Tests C/Rust layouts, feature wiring, library versions, providers and HTTP access. | Covers native integration, not just ABI layout. |
 
 ## Targets and compatibility baselines
@@ -248,7 +243,7 @@ zig run native/materialize-openssl.zig -- target/openssl-oracle --check
 files. Its header records the input SHA-256. The generator accepts only the
 pinned literal lists and `CSOURCES` references; it is not a Make interpreter.
 Use the Zig command above rather than the historical generator filename in
-the manifest's attribution comment. The manifest is not yet used by `build.zig`.
+the manifest's attribution comment. `native/curl.zig` consumes this manifest.
 
 The OpenSSL inspector runs Configure with
 `no-shared no-tests no-module no-dso no-engine no-asm -fPIC`. It generates
@@ -268,7 +263,7 @@ this does **not** reproduce `build.zig` ReleaseSafe or replace its callback,
 provider and TLS tests. Do not weaken ReleaseSafe checks to make tests pass.
 Perl and the OpenSSL Make harness are maintainer-only requirements for this
 optional suite, not requirements of the direct OpenSSL consumer build.
-Curl still requires CMake/Make, as noted above.
+The separate curl oracle also needs CMake/Make; consumer builds do not.
 
 `vendor/openssl` intentionally omits test/fuzz harness sources. Restore those
 from the exact pinned OpenSSL 3.6.4 upstream commit, then overlay the corrected
@@ -448,3 +443,80 @@ especially `strerror_r`, time/off_t widths, Unix APIs and Apple SecTrust.
 Test CA overrides, Linux runtime bundle discovery, HTTPS proxies and S3 without
 embedding build-machine CA paths or discovering host libraries. When moving C
 code to ReleaseSafe, investigate sanitizer failures rather than disabling checks.
+
+## curl capability contract and comparison
+
+`native/curl_config.h` replaces configure-time probing. It is maintained source,
+not a header copied blindly from the build host. Undefined means disabled;
+do not write `#define HAVE_FOO 0` for curl's `#ifdef` capabilities.
+`native/curl.zig` supplies `HAVE_CONFIG_H`, `BUILDING_LIBCURL`, hidden visibility,
+Linux `_GNU_SOURCE`, and the GNU libc discriminator. `USE_OPENSSL` and `HAVE_LIBZ`
+come from the contract. Headers come only from the vendor tree and the same
+target's installed direct OpenSSL/zlib prefix. No CA file/path is embedded.
+
+The initial audit compares the prior x86_64 GNU CMake output, fresh x86_64 musl
+and ARMv7 GNU 2.17 CMake outputs, curl's pinned `CMake/unix-cache.cmake`, and Zig
+0.15.2's target headers. macOS capability choices follow those target sources;
+they still require Apple SDK compile/link and runtime verification on macOS.
+
+| Dimension | Contract |
+| --- | --- |
+| OS-independent Unix | pthread resolver, IPv4/IPv6, poll, sockets/socketpair, reentrant time functions, `getaddrinfo`, `sockaddr_storage`, `timeval`, OpenSSL and zlib |
+| Linux | `_GNU_SOURCE`; accept4, pipe2, eventfd, sendmmsg, memrchr, six-argument gethostbyname_r, five-argument fsetxattr |
+| GNU libc | Pointer-returning strerror_r; time_t follows C long (32-bit on ARMv7) |
+| musl 1.2 | Integer-returning POSIX strerror_r; 64-bit time_t including ARM |
+| macOS | POSIX strerror_r, six-argument fsetxattr, Mach time, filio/sockio headers, Apple SecTrust; Linux-only APIs remain undefined |
+| Word size | Compiler-derived long/size_t; 64-bit off_t (`_FILE_OFFSET_BITS=64`) and curl_off_t; int/socket are 32-bit |
+
+The GNU floors share capabilities: the selected Linux APIs predate glibc 2.17.
+Zig's explicit target versions constrain symbols rather than copying per-floor
+configurations. musl CMake additionally detects `stropts.h`; the direct build
+intentionally omits that unused legacy STREAMS include. GNU/ARM differences
+are only long/size_t/time_t widths. Apple headers gate `memset_s` on Annex K
+opt-in, so unlike the upstream Unix cache's assumption, it stays undefined;
+curl retains its portable secure-zero fallback. Native compile-time assertions check actual
+headers against this contract, including both strerror_r ABIs. The configured
+protocol list is exactly FTP, FTPS, HTTP, HTTPS. The pinned source identifies
+itself as **8.22.0-DEV**, numeric **0x081600**; no version file is rewritten.
+
+Commands below run from the repository root. They are maintainer checks, not
+consumer dependencies. The matrix tool uses `target_spec.rs` rather than a
+second list of targets. It links every modeled Linux variant, including HTSlib,
+curl, OpenSSL and all compression libraries;
+only x86_64 GNU/musl executables run on an x86_64 Linux host. Other architectures
+remain compile/link evidence, not runtime or Rust binding approval.
+
+```sh
+zig run native/generate-curl-sources.zig -- --check
+rustc --edition=2018 native/check-curl-targets.rs -o target/check-curl-targets
+target/check-curl-targets
+# An optional substring argument restricts the matrix, e.g. x86_64-linux-musl.
+python3 tests/native_curl.py target/curl-matrix/x86_64-linux-gnu.2.17/curl-test
+python3 tests/native_curl.py target/curl-matrix/x86_64-linux-musl/curl-test
+
+# Optional CMake/Make oracle: output directory must not exist.
+# Requires CMake, Make, Bash, nm and standard text tools in addition to Zig.
+bash native/inspect-curl.sh target/curl-matrix/x86_64-linux-musl \
+  x86_64-linux-musl baseline target/curl-oracle-musl
+
+# Actual HTSlib CA/proxy/S3/GCS requests, with local certificate fixtures.
+# Requires Python and the openssl executable for fixtures, never for builds.
+cargo test --all-features --test native_integration -- --include-ignored
+python3 tests/native_tls.py <all-features-OUT_DIR>/native x86_64-linux-gnu
+```
+
+The oracle checks the 196 normalized archive members and public `curl_*`
+symbols. Review its `build/lib/curl_config.h` and compiler flags separately.
+Compiler helper/private symbol differences from ReleaseSafe versus CMake's
+Release optimization are not public API differences. The transfer fixture
+checks localhost DNS, IPv6, redirects, ranges, auth, cookies, gzip, certificate
+and hostname rejection, per-request CA precedence, FTP, explicit and implicit
+FTPS. The C probe also checks poll/wakeup across pthreads, versions, dependency
+flags, protocols and strerror output. The TLS fixture independently checks S3
+SigV4 and GCS authorization/requester-pays through the actual HTSlib backend.
+
+The S3 test initially trapped at curl's write-callback invocation. HTSlib's
+response callback took `void *` rather than curl's required `char *`. Correcting
+that signature and the analogous header/upload callbacks in the authoritative
+HTSlib sources fixes the undefined call; no curl source or sanitizer setting
+is changed. Preserve these three vendor edits as a separable correction.
