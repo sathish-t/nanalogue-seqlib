@@ -242,8 +242,8 @@ zig run native/materialize-openssl.zig -- target/openssl-oracle --check
 `vendor/curl/lib/Makefile.inc`, including conditionally empty protocol/backend
 files. Its header records the input SHA-256. The generator accepts only the
 pinned literal lists and `CSOURCES` references; it is not a Make interpreter.
-Use the Zig command above rather than the historical generator filename in
-the manifest's attribution comment. `native/curl.zig` consumes this manifest.
+Use the Zig command above to regenerate it. `native/curl.zig` consumes this
+manifest.
 
 The OpenSSL inspector runs Configure with
 `no-shared no-tests no-module no-dso no-engine no-asm -fPIC`. It generates
