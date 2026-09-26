@@ -491,18 +491,11 @@ zig run native/generate-curl-sources.zig -- --check
 rustc --edition=2018 native/check-curl-targets.rs -o target/check-curl-targets
 target/check-curl-targets
 # An optional substring argument restricts the matrix, e.g. x86_64-linux-musl.
-python3 tests/native_curl.py target/curl-matrix/x86_64-linux-gnu.2.17/curl-test
-python3 tests/native_curl.py target/curl-matrix/x86_64-linux-musl/curl-test
 
 # Optional CMake/Make oracle: output directory must not exist.
 # Requires CMake, Make, Bash, nm and standard text tools in addition to Zig.
 bash native/inspect-curl.sh target/curl-matrix/x86_64-linux-musl \
   x86_64-linux-musl baseline target/curl-oracle-musl
-
-# Actual HTSlib CA/proxy/S3/GCS requests, with local certificate fixtures.
-# Requires Python and the openssl executable for fixtures, never for builds.
-cargo test --all-features --test native_integration -- --include-ignored
-python3 tests/native_tls.py <all-features-OUT_DIR>/native x86_64-linux-gnu
 ```
 
 The oracle checks the 196 normalized archive members and public `curl_*`
@@ -520,3 +513,44 @@ response callback took `void *` rather than curl's required `char *`. Correcting
 that signature and the analogous header/upload callbacks in the authoritative
 HTSlib sources fixes the undefined call; no curl source or sanitizer setting
 is changed. Preserve these three vendor edits as a separable correction.
+
+## Running the local network fixtures
+
+`tests/native_curl.py` and `tests/native_tls.py` are optional, manually invoked
+tests. Neither `cargo test`, the matrix tool nor CI invokes these Python scripts.
+They need **Python 3 with its `ssl` module and a host `openssl` executable on
+PATH**, in addition to the native build prerequisites above. These are test
+dependencies, not requirements for building the crate or running an application
+that uses it; see the [dependency table](../README.md#requirements).
+
+There are two separate TLS implementations involved in each test:
+
+* **Fixture/server:** the host `openssl` CLI creates temporary certificates and
+  keys (and `native_tls.py` uses it to prepare a CA directory). Python's `ssl`
+  module supplies TLS for the local servers, using Python's own OpenSSL linkage.
+  Neither is our Zig-built OpenSSL. The native build installs OpenSSL libraries,
+  not an `openssl` executable.
+* **Client under test:** a C executable statically linked to our Zig-built curl,
+  OpenSSL and zlib, plus HTSlib where applicable. Its requests exercise our
+  libraries against those local servers, not the host curl/OpenSSL libraries.
+
+Build the target libraries before invoking either script. The client executable
+must be runnable on the test host; cross-compilation alone is not a runtime test.
+From the repository root on x86_64 Linux:
+
+```sh
+# First build libraries and curl-test using the matrix commands above.
+# native_curl.py runs that already-compiled client; it does not compile it.
+python3 tests/native_curl.py target/curl-matrix/x86_64-linux-gnu.2.17/curl-test
+python3 tests/native_curl.py target/curl-matrix/x86_64-linux-musl/curl-test
+
+# Build the all-feature Cargo libraries before testing HTSlib's network backend.
+cargo test --all-features --test native_integration -- --include-ignored
+# Substitute the OUT_DIR from that build, not another feature/target build.
+# native_tls.py uses Zig to compile its small C client against these archives.
+python3 tests/native_tls.py <all-features-OUT_DIR>/native x86_64-linux-gnu
+```
+
+The scripts generate temporary certificates and use local servers and test
+credentials; they need no cloud account. Their scratch directories are created
+under `target/` and removed when the scripts finish.

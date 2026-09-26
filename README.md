@@ -25,6 +25,16 @@ Those tools are used only for optional maintainer comparisons with upstream
 builds. See [native build maintenance](native/BUILDING.md) for configuration,
 vendored callback corrections and regeneration procedures.
 
+Build tools, optional test tools and application runtime requirements are
+separate:
+
+| Stage | Requirements |
+| --- | --- |
+| Build the crate or run ordinary `cargo test` | Rust, Zig 0.15.2 and target linker/SDK facilities. No system curl/OpenSSL libraries or OpenSSL CLI are required. |
+| Run optional local network fixtures | Python 3 with its `ssl` module and a host `openssl` executable on PATH to create test certificates. These scripts are run manually, not by `cargo test` or CI. See [fixture execution](native/BUILDING.md#running-the-local-network-fixtures). |
+| Run optional upstream build comparisons | Additional maintainer tools such as CMake/Make for curl or Perl/Make for OpenSSL; see the build guide for each command's prerequisites. |
+| Run an application using this crate | The target's platform runtime libraries, as required by the final executable, and CA trust for verified TLS connections. Credentials and CRAM references are needed when the application's inputs require them. This crate does not require Rust, Zig, Python or the `openssl` executable at application runtime. |
+
 ```sh
 # Optional installer; requires curl, minisign, and xz/tar.
 bash native/install-zig.sh
