@@ -3,5 +3,7 @@
 #![allow(clippy::all, improper_ctypes)]
 // bindgen 0.72 emits integer transmutes for C bitfield accessors.
 #![allow(unnecessary_transmutes)]
+// bindgen represents size_t as its ABI-equivalent C integer type.
+#![allow(suspicious_runtime_symbol_definitions)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
