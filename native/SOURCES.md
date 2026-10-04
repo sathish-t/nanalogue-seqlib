@@ -37,8 +37,12 @@ OpenSSL 3.6.4 was copied from its upstream release commit using
 `https://api.github.com/repos/openssl/openssl/tarball/d3c1b1169b3569ff3069e5b399f47b2b28e03d79`;
 download SHA-256: `597c001f956b50243b23384796a1f67267824a48427fdbe1744450e6e13306b2`.
 The previous `openssl-src` package's source-file selection was retained;
-upstream documentation, demos, tests, and other files not needed to build the
-libraries remain omitted.
+files unused by the configured portable-C builds for the supported Linux and
+macOS targets are also omitted. The bundled libraries retain modern HTTPS and
+S3/GCS prerequisites (TLS 1.2/1.3, RSA, ECDSA, X25519/P-256, AES-GCM,
+ChaCha20, SHA-1/2 and HMAC), while command-line applications, unused protocols,
+legacy algorithms, OCSP stapling verification and uncommon certificate/key
+formats are disabled.
 
 curl 8.22.0 was copied from its upstream release commit archive at
 `https://api.github.com/repos/curl/curl/tarball/01346829096c61b372692f6dc43ffa778c6caccd`;
