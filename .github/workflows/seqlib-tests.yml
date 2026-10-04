@@ -79,7 +79,7 @@ jobs:
             feature_args+=("$FEATURE_ARGS")
           fi
           host_target="$(rustc -vV | sed -n 's/^host: //p')"
-          cargo-zigbuild test --target "$host_target" "${feature_args[@]}"
+          cargo-zigbuild test --target "$host_target" "${feature_args[@]}" -- --test-threads=1
 
   MUSL:
     name: MUSL tests (${{ matrix.rust_target }}, ${{ matrix.feature }})
@@ -125,7 +125,8 @@ jobs:
           if [[ -n "$FEATURE_ARGS" ]]; then
             feature_args+=("$FEATURE_ARGS")
           fi
-          cargo-zigbuild test --target "$CARGO_BUILD_TARGET" "${feature_args[@]}"
+          cargo-zigbuild test --target "$CARGO_BUILD_TARGET" "${feature_args[@]}" -- \
+            --test-threads=1
 
   MacOS:
     name: macOS tests (${{ matrix.platform }}, ${{ matrix.feature }})
@@ -170,7 +171,8 @@ jobs:
           if [[ -n "$FEATURE_ARGS" ]]; then
             feature_args+=("$FEATURE_ARGS")
           fi
-          cargo test --release --verbose --target "$RUST_TARGET" "${feature_args[@]}"
+          cargo test --release --verbose --target "$RUST_TARGET" "${feature_args[@]}" -- \
+            --test-threads=1
 
   WASI:
     name: WASI compile checks
