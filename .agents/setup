@@ -2,16 +2,16 @@
 # Orb setup for rust-htslib (HTSlib bindings for Rust).
 #
 # Installs the toolchain and build prerequisites a fresh orb needs to build,
-# test, lint, and format this crate, then pre-compiles the heavy C/Rust
-# dependencies (this crate builds vendored C sources) so later cargo invocations
-# are fast. Designed to be idempotent: a warm run skips every install and only
-# re-checks that the cache is in place.
+# test, lint, and format this crate, then downloads its Rust dependencies.
+# Designed to be idempotent: a warm run skips every install and only checks
+# that the dependency cache is in place.
 #
 # Native libraries are copied into vendor/. Consumer builds need Zig, CMake,
 # Make and Perl, but neither native development packages nor libclang.
 set -euo pipefail
 
 step() { printf '\n\033[1m[%s] %s\033[0m\n' "$(date +%H:%M:%S)" "$*"; }
+finish_step() { printf '\033[1m[%s] completed in %ss\033[0m\n' "$(date +%H:%M:%S)" "$((SECONDS - $1))"; }
 
 # This script runs as a bare (non-login, non-interactive) shell, so it does
 # not source ~/.bash_profile or ~/.bashrc. Source cargo's env up front if a
@@ -29,14 +29,18 @@ for pkg in cmake make minisign perl; do
 done
 if [ "${#need_apt[@]}" -gt 0 ]; then
     step "apt-get install: ${need_apt[*]}"
+    started=$SECONDS
     sudo apt-get update -y
     sudo apt-get install -y --no-install-recommends "${need_apt[@]}"
+    finish_step "$started"
 else
     step "native build tools already installed"
 fi
 
-step "installing pinned Zig 0.15.2 toolchain"
+step "ensuring pinned Zig 0.15.2 toolchain"
+started=$SECONDS
 bash native/install-zig.sh
+finish_step "$started"
 export PATH="$HOME/.local/bin:$PATH"
 zig_marker="# rust-htslib orb: Zig on PATH"
 if ! grep -Fqx "$zig_marker" "$HOME/.bash_profile" 2>/dev/null; then
@@ -51,8 +55,10 @@ fi
 # non-interactive login shells (Amp, supervised services) get cargo on PATH.
 if ! command -v cargo >/dev/null 2>&1; then
     step "installing rustup + stable toolchain (minimal profile)"
+    started=$SECONDS
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --profile minimal --default-toolchain stable
+    finish_step "$started"
     # The installer cannot update this running script's environment.
     # shellcheck disable=SC1091
     source "$HOME/.cargo/env"
@@ -60,8 +66,18 @@ else
     step "rust toolchain already present: $(cargo --version)"
 fi
 
-step "ensuring rustfmt + clippy components"
-rustup component add rustfmt clippy
+missing_components=()
+installed_components="$(rustup component list --installed)"
+grep -q '^rustfmt-' <<<"$installed_components" || missing_components+=(rustfmt)
+grep -q '^clippy-' <<<"$installed_components" || missing_components+=(clippy)
+if [ "${#missing_components[@]}" -gt 0 ]; then
+    step "installing Rust components: ${missing_components[*]}"
+    started=$SECONDS
+    rustup component add "${missing_components[@]}"
+    finish_step "$started"
+else
+    step "rustfmt + clippy already installed"
+fi
 
 # Make cargo reachable from non-interactive login shells. Idempotent and
 # guarded by a marker so repeated setup runs do not duplicate the block.
@@ -78,16 +94,15 @@ fi
 EOF
 fi
 
-# --- Pre-build dependencies (the expensive step we want snapshotted) -------
-# Zig compiles HTSlib and its native libraries from source, and the Rust
-# dependency graph is non-trivial. Building once here caches everything in
-# target/ (gitignored) so subsequent cargo build/test/clippy are fast. We warm
-# both the default feature set (what `cargo build`/`cargo test` use by default)
-# and the full feature set (what `cargo test --all-features` uses, matching CI).
-step "cargo build (default features) — warm cache"
-cargo build
-
-step "cargo build --all-features — warm cache"
-cargo build --all-features
+# --- Rust dependencies ------------------------------------------------------
+# Do not compile here. This crate's build script compiles vendored OpenSSL,
+# curl, compression libraries, and HTSlib. Building default and all-feature
+# variants creates separate native outputs and can exceed Amp's setup limit.
+# Fetching still makes the comparatively small Rust dependency graph available
+# in the snapshot; agents compile only the feature set their task needs.
+step "cargo fetch — warm dependency cache"
+started=$SECONDS
+cargo fetch
+finish_step "$started"
 
 step "setup complete"
