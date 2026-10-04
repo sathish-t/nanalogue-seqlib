@@ -31,6 +31,15 @@ pub use crate::bam::record::Record;
 use hts_sys::{hts_fmt_option, sam_fields};
 use std::convert::{TryFrom, TryInto};
 
+/// The exact file format HTSlib detected for an open file.
+///
+/// # Safety
+///
+/// `htsfile` must point to a live `htsFile`.
+unsafe fn exact_format(htsfile: *mut htslib::htsFile) -> htslib::htsExactFormat {
+    (*htslib::hts_get_format(htsfile)).format
+}
+
 /// # Safety
 ///
 /// Implementation for `Read::set_threads` and `Writer::set_threads`.
@@ -192,12 +201,14 @@ pub trait Read: Sized {
     ///
     /// Virtual offsets are only supported for BAM files.
     fn seek(&mut self, offset: i64) -> Result<()> {
-        let htsfile = unsafe { self.htsfile().as_ref() }.expect("bug: null pointer to htsFile");
-        if htsfile.format.format != htslib::htsExactFormat_bam {
+        let htsfile = self.htsfile();
+        assert!(!htsfile.is_null(), "bug: null pointer to htsFile");
+        if unsafe { exact_format(htsfile) } != htslib::htsExactFormat_bam {
             return Err(Error::BamVirtualOffsetUnsupported);
         }
 
-        let ret = unsafe { htslib::bgzf_seek(htsfile.fp.bgzf, offset, libc::SEEK_SET) };
+        let ret =
+            unsafe { htslib::bgzf_seek(htslib::hts_get_bgzfp(htsfile), offset, libc::SEEK_SET) };
 
         if ret == 0 {
             Ok(())
@@ -210,13 +221,12 @@ pub trait Read: Sized {
     ///
     /// Virtual offsets are only supported for BAM files.
     fn tell(&self) -> Result<i64> {
-        // this reimplements the bgzf_tell macro
-        let htsfile = unsafe { self.htsfile().as_ref() }.expect("bug: null pointer to htsFile");
-        if htsfile.format.format != htslib::htsExactFormat_bam {
+        let htsfile = self.htsfile();
+        assert!(!htsfile.is_null(), "bug: null pointer to htsFile");
+        if unsafe { exact_format(htsfile) } != htslib::htsExactFormat_bam {
             return Err(Error::BamVirtualOffsetUnsupported);
         }
-        let bgzf = unsafe { *htsfile.fp.bgzf };
-        Ok((bgzf.block_address << 16) | (i64::from(bgzf.block_offset) & 0xFFFF))
+        Ok(unsafe { htslib::wrap_bgzf_tell(htslib::hts_get_bgzfp(htsfile)) })
     }
 
     /// Activate multi-threaded BAM read support in htslib. This should permit faster
@@ -363,14 +373,11 @@ impl Reader {
         start: Option<i64>,
         end: Option<i64>,
     ) -> Result<ChunkIterator<'_, Self>> {
-        if (start.is_some() || end.is_some())
-            && unsafe { self.htsfile.as_ref() }
-                .expect("bug: null pointer to htsFile")
-                .format
-                .format
-                != htslib::htsExactFormat_bam
-        {
-            return Err(Error::BamVirtualOffsetUnsupported);
+        if start.is_some() || end.is_some() {
+            assert!(!self.htsfile.is_null(), "bug: null pointer to htsFile");
+            if unsafe { exact_format(self.htsfile) } != htslib::htsExactFormat_bam {
+                return Err(Error::BamVirtualOffsetUnsupported);
+            }
         }
 
         if let Some(pos) = start {
@@ -985,7 +992,7 @@ impl IndexedReader {
         }
         // the quick index stats method only works for BAM files, not SAM or CRAM
         unsafe {
-            if (*self.htsfile()).format.format != htslib::htsExactFormat_bam {
+            if exact_format(self.htsfile()) != htslib::htsExactFormat_bam {
                 return self.slow_idxstats();
             }
         }
@@ -1422,9 +1429,10 @@ fn hts_open(path: &[u8], mode: &[u8]) -> Result<*mut htslib::htsFile> {
             unsafe {
                 // Comparison against 'htsFormatCategory_sequence_data' doesn't handle text files correctly
                 // hence the explicit checks against all supported exact formats
-                if (*ret).format.format != htslib::htsExactFormat_sam
-                    && (*ret).format.format != htslib::htsExactFormat_bam
-                    && (*ret).format.format != htslib::htsExactFormat_cram
+                let format = exact_format(ret);
+                if format != htslib::htsExactFormat_sam
+                    && format != htslib::htsExactFormat_bam
+                    && format != htslib::htsExactFormat_cram
                 {
                     htslib::hts_close(ret);
                     return Err(Error::BamOpen {
@@ -1444,8 +1452,9 @@ fn itr_next(
     record: *mut htslib::bam1_t,
 ) -> i32 {
     unsafe {
+        // Matches HTSlib's sam_itr_next: the BGZF stream for BAM, NULL otherwise.
         htslib::hts_itr_next(
-            (*htsfile).fp.bgzf,
+            htslib::hts_get_bgzfp(htsfile),
             itr,
             record as *mut ::std::os::raw::c_void,
             htsfile as *mut ::std::os::raw::c_void,

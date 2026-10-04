@@ -1,11 +1,12 @@
 //! Check the C/Rust ABI and that Cargo features really enable native codecs.
 use rust_htslib::htslib;
+use std::collections::BTreeMap;
 #[cfg(feature = "lzma")]
 use std::ffi::CStr;
 use std::mem::{align_of, offset_of, size_of};
 
 extern "C" {
-    static nanalogue_hts_abi: [usize; 12];
+    fn nanalogue_hts_abi_table(len: *mut usize) -> *const AbiEntry;
     #[cfg(feature = "lzma")]
     fn lzma_version_string() -> *const libc::c_char;
 
@@ -20,24 +21,174 @@ extern "C" {
     fn OSSL_PROVIDER_unload(provider: *mut libc::c_void) -> libc::c_int;
 }
 
+#[repr(C)]
+struct AbiEntry {
+    name: *const libc::c_char,
+    value: u64,
+}
+
+/// Read the table that native/wrapper.c compiles from the real headers.
+fn c_abi() -> BTreeMap<String, u64> {
+    let mut len = 0;
+    let entries = unsafe {
+        let table = nanalogue_hts_abi_table(&mut len);
+        std::slice::from_raw_parts(table, len)
+    };
+    entries
+        .iter()
+        .map(|e| {
+            let name = unsafe { std::ffi::CStr::from_ptr(e.name) };
+            (name.to_str().unwrap().to_owned(), e.value)
+        })
+        .collect()
+}
+
+macro_rules! size {
+    ($t:ident) => {
+        (concat!("size ", stringify!($t)), size_of::<htslib::$t>())
+    };
+    (enum $c:literal, $t:ident) => {
+        (concat!("size enum ", $c), size_of::<htslib::$t>())
+    };
+}
+macro_rules! align {
+    ($t:ident) => {
+        (concat!("align ", stringify!($t)), align_of::<htslib::$t>())
+    };
+}
+macro_rules! offset {
+    ($t:ident, $($f:ident).+) => {
+        (
+            concat!("offset ", stringify!($t), ".", stringify!($($f).+)),
+            offset_of!(htslib::$t, $($f).+),
+        )
+    };
+}
+macro_rules! value {
+    ($c:ident) => {
+        (stringify!($c), htslib::$c as usize)
+    };
+    ($c:literal, $r:ident) => {
+        ($c, htslib::$r as usize)
+    };
+}
+
+/// Every concrete struct field and constant hand-declared in src/htslib.rs
+/// must match the C compiler's view of the vendored headers.
 #[test]
 fn rust_bindings_match_zig_c_layouts() {
-    let rust = [
-        size_of::<htslib::bam1_t>(),
-        align_of::<htslib::bam1_t>(),
-        offset_of!(htslib::bam1_t, data),
-        offset_of!(htslib::bam1_t, l_data),
-        size_of::<htslib::bam1_core_t>(),
-        offset_of!(htslib::bam1_core_t, pos),
-        offset_of!(htslib::bam1_core_t, n_cigar),
-        size_of::<htslib::sam_hdr_t>(),
-        offset_of!(htslib::sam_hdr_t, target_len),
-        size_of::<htslib::htsFile>(),
-        offset_of!(htslib::htsFile, fp),
-        size_of::<htslib::htsFormat>(),
+    let rust: Vec<(&str, usize)> = vec![
+        size!(hts_pos_t),
+        size!(enum "htsLogLevel", htsLogLevel),
+        size!(enum "htsExactFormat", htsExactFormat),
+        size!(enum "hts_fmt_option", hts_fmt_option),
+        size!(enum "sam_fields", sam_fields),
+        size!(htsFormat),
+        align!(htsFormat),
+        offset!(htsFormat, category),
+        offset!(htsFormat, format),
+        offset!(htsFormat, version),
+        offset!(htsFormat, version.minor),
+        offset!(htsFormat, compression),
+        offset!(htsFormat, compression_level),
+        offset!(htsFormat, specific),
+        size!(htsThreadPool),
+        align!(htsThreadPool),
+        offset!(htsThreadPool, pool),
+        offset!(htsThreadPool, qsize),
+        size!(sam_hdr_t),
+        align!(sam_hdr_t),
+        offset!(sam_hdr_t, n_targets),
+        offset!(sam_hdr_t, ignore_sam_err),
+        offset!(sam_hdr_t, l_text),
+        offset!(sam_hdr_t, target_len),
+        offset!(sam_hdr_t, cigar_tab),
+        offset!(sam_hdr_t, target_name),
+        offset!(sam_hdr_t, text),
+        offset!(sam_hdr_t, sdict),
+        offset!(sam_hdr_t, hrecs),
+        offset!(sam_hdr_t, ref_count),
+        size!(bam1_core_t),
+        align!(bam1_core_t),
+        offset!(bam1_core_t, pos),
+        offset!(bam1_core_t, tid),
+        offset!(bam1_core_t, bin),
+        offset!(bam1_core_t, qual),
+        offset!(bam1_core_t, l_extranul),
+        offset!(bam1_core_t, flag),
+        offset!(bam1_core_t, l_qname),
+        offset!(bam1_core_t, n_cigar),
+        offset!(bam1_core_t, l_qseq),
+        offset!(bam1_core_t, mtid),
+        offset!(bam1_core_t, mpos),
+        (
+            "offset bam1_core_t.isize",
+            offset_of!(htslib::bam1_core_t, isize_),
+        ),
+        size!(bam1_t),
+        align!(bam1_t),
+        offset!(bam1_t, core),
+        offset!(bam1_t, id),
+        offset!(bam1_t, data),
+        offset!(bam1_t, l_data),
+        offset!(bam1_t, m_data),
+        value!("sam", htsExactFormat_sam),
+        value!("bam", htsExactFormat_bam),
+        value!("cram", htsExactFormat_cram),
+        value!("CRAM_OPT_VERSION", hts_fmt_option_CRAM_OPT_VERSION),
+        value!("CRAM_OPT_EMBED_REF", hts_fmt_option_CRAM_OPT_EMBED_REF),
+        value!("CRAM_OPT_REFERENCE", hts_fmt_option_CRAM_OPT_REFERENCE),
+        value!("CRAM_OPT_NO_REF", hts_fmt_option_CRAM_OPT_NO_REF),
+        value!(
+            "CRAM_OPT_REQUIRED_FIELDS",
+            hts_fmt_option_CRAM_OPT_REQUIRED_FIELDS
+        ),
+        value!(
+            "HTS_OPT_COMPRESSION_LEVEL",
+            hts_fmt_option_HTS_OPT_COMPRESSION_LEVEL
+        ),
+        value!("SAM_FLAG", sam_fields_SAM_FLAG),
+        value!("SAM_RNAME", sam_fields_SAM_RNAME),
+        value!(HTS_FEATURE_PLUGINS),
+        value!(HTS_FEATURE_LIBCURL),
+        value!(HTS_FEATURE_S3),
+        value!(HTS_FEATURE_GCS),
+        value!(HTS_FEATURE_LIBDEFLATE),
+        value!(HTS_FEATURE_LZMA),
+        value!(HTS_FEATURE_BZIP2),
+        value!(HTS_FEATURE_HTSCODECS),
+        value!(BAM_FPAIRED),
+        value!(BAM_FPROPER_PAIR),
+        value!(BAM_FUNMAP),
+        value!(BAM_FMUNMAP),
+        value!(BAM_FREVERSE),
+        value!(BAM_FMREVERSE),
+        value!(BAM_FREAD1),
+        value!(BAM_FREAD2),
+        value!(BAM_FSECONDARY),
+        value!(BAM_FQCFAIL),
+        value!(BAM_FDUP),
+        value!(BAM_FSUPPLEMENTARY),
     ];
-    // The immutable array is emitted by Zig from the actual compiled C headers.
-    assert_eq!(rust, unsafe { nanalogue_hts_abi });
+    let count = rust.len();
+    let rust: BTreeMap<String, u64> = rust
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value as u64))
+        .collect();
+    assert_eq!(rust.len(), count, "duplicate name in the Rust ABI list");
+    // The immutable table is emitted by Zig from the actual compiled C headers.
+    let c = c_abi();
+    let names: std::collections::BTreeSet<&String> = rust.keys().chain(c.keys()).collect();
+    let mismatches: Vec<String> = names
+        .into_iter()
+        .filter(|name| rust.get(*name) != c.get(*name))
+        .map(|name| format!("{name}: Rust {:?}, C {:?}", rust.get(name), c.get(name)))
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "src/htslib.rs disagrees with the HTSlib headers:\n{}",
+        mismatches.join("\n")
+    );
 }
 
 #[test]

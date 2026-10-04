@@ -83,33 +83,22 @@ layout; curl's source, build files, documentation and license notices remain.
 
 ## Bindings and updates
 
-`native/bindings/` contains separate files for x86_64/aarch64 Linux GNU, Linux
-musl and macOS, plus `wasm32-wasip1`. The six native files were generated using
-bindgen 0.72.1, libclang 14.0.6 and Zig 0.15.2 target headers. The WASI file was
-generated using bindgen 0.72.1 and libclang 19 after Zig 0.15.2 preprocessed
-`native/wrapper.h` against its `wasm32-wasi` headers with the four WASI
-emulation interfaces enabled. Layout assertions are retained. Consumer builds
-do not run bindgen or require libclang; `native/bindgen` is a separate,
-maintainer-only Cargo package and is not a dependency of this crate.
+`src/htslib.rs` declares, by hand, only the HTSlib functions, structs and
+constants this crate and Nanalogue use; there is no bindgen step and no
+per-target generated file. The declarations use fixed-width integers, `usize`
+for `size_t`, and pointers, so one file serves every supported target. Structs
+whose fields Rust never touches are opaque.
 
-To regenerate one target from the repository root:
+`native/wrapper.c` compiles a table of struct sizes, alignments, field offsets
+and constant values from the real headers for the target being built.
+`tests/native_stack.rs` compares every entry, by name, with the Rust
+declarations. To use another HTSlib function, copy its prototype from the
+vendored header into `src/htslib.rs`; for a new concrete struct field or
+constant, also add it to both the C table and the Rust test.
 
-```sh
-cargo run --manifest-path native/bindgen/Cargo.toml -- x86_64-unknown-linux-gnu
-```
-
-To regenerate the WASI bindings, make Clang and libclang 19 available through
-`CLANG_PATH` and `LIBCLANG_PATH` when they are not in their standard locations:
-
-```sh
-CLANG_PATH=/path/to/clang-19 \
-LIBCLANG_PATH=/path/to/llvm-19/lib \
-cargo run --manifest-path native/bindgen/Cargo.toml -- wasm32-wasip1
-```
-
-Regenerate all seven after header/toolchain changes, then run the native ABI
-tests and the WASI ABI/integration checks in a consuming application. Also run
-the format/codec tests on each applicable target. Updating sources requires
+After header/toolchain changes, re-check `src/htslib.rs` against the headers
+and run the native ABI tests and the WASI ABI/integration checks in a consuming
+application. Also run the format/codec tests on each applicable target. Updating sources requires
 checking upstream build source lists, compiler configuration, optional
 dependencies, license changes and security advisories. The version choices
 here preserve the previous native dependency baseline rather than claiming

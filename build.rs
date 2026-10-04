@@ -93,11 +93,6 @@ fn main() {
         fs::write(path, format!("#!/bin/sh\nexec {} \"$@\"\n", command)).unwrap();
         fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
     }
-    fs::copy(
-        format!("native/bindings/{}.rs", target),
-        out.join("bindings.rs"),
-    )
-    .expect("missing checked-in bindings for supported target");
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     run_zig(&root, &out, &zig, &zig_target, "compression");
     network::build(&out, &target, &compiler, &archiver);
@@ -146,7 +141,6 @@ fn main() {
     for file in ["network.rs", "wrapper.c", "wrapper.h", "wasi.h"] {
         println!("cargo:rerun-if-changed=native/{}", file);
     }
-    println!("cargo:rerun-if-changed=native/bindings/{}.rs", target);
     println!("cargo:rerun-if-changed=vendor");
     println!("cargo:rerun-if-changed=build.zig");
     println!("cargo:rerun-if-changed=build.rs");

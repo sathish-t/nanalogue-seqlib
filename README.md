@@ -42,9 +42,10 @@ are no Rust build dependencies. Unrelated Rust dependencies still use Cargo.
 The `bindgen` and `static` features remain no-op compatibility aliases.
 
 See [native source provenance and licenses](native/SOURCES.md) for versions,
-upstream commits, input checksums, local patches and binding regeneration.
-The bindings are checked in per target ABI and checked against compiled C
-layouts by integration tests.
+upstream commits, input checksums, local patches and how the HTSlib bindings
+are maintained. `src/htslib.rs` declares only the small part of HTSlib this
+crate uses, by hand; integration tests check its layouts and constants against
+the compiled C headers.
 
 ## WebAssembly/WASI
 
