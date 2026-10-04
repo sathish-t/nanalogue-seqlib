@@ -169,7 +169,15 @@ cargo test --no-default-features
 cargo doc --all-features --no-deps
 ```
 
-CI is configured to build and run seqlib's default-feature, `--no-default-features`, and `--all-features` test configurations on GNU/Linux and MUSL for both x86_64 and ARM64, plus macOS Intel and Apple Silicon. MUSL jobs use matching-architecture runners and also target MUSL in the compile-fail tests' nested Cargo invocations. [Upstream API documentation](https://docs.rs/rust-htslib) is useful background but may differ from this fork; use locally generated documentation for its current API.
+CI covers both native platforms and WASI. It builds and runs seqlib's
+default-feature, `--no-default-features`, and `--all-features` test
+configurations on GNU/Linux and MUSL for both x86_64 and ARM64, plus macOS Intel
+and Apple Silicon. MUSL jobs use matching-architecture runners and also target
+MUSL in the compile-fail tests' nested Cargo invocations. For WASI, CI compiles
+and links the test targets without running them, and verifies that the
+unsupported default features are rejected. [Upstream API
+documentation](https://docs.rs/rust-htslib) is useful background but may differ
+from this fork; use locally generated documentation for its current API.
 
 # Alternatives
 

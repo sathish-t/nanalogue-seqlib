@@ -171,3 +171,41 @@ jobs:
             feature_args+=("$FEATURE_ARGS")
           fi
           cargo test --release --verbose --target "$RUST_TARGET" "${feature_args[@]}"
+
+  WASI:
+    name: WASI compile checks
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Install stable WASI toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-wasip1
+          rustup default stable
+
+      - name: Install native build tools
+        uses: ./.github/actions/native-tools
+        with:
+          install-cargo-zigbuild: false
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: wasi
+
+      - name: Compile WASI test targets
+        run: cargo test --release --target wasm32-wasip1 --no-default-features --no-run
+
+      - name: Reject unsupported default features
+        run: |
+          set +e
+          output="$(cargo check --release --target wasm32-wasip1 2>&1)"
+          status=$?
+          set -e
+          if [[ "$status" -eq 0 ]]; then
+            echo "WASI build unexpectedly accepted default features" >&2
+            exit 1
+          fi
+          grep -F "WASI builds support local files and plain zlib only" <<<"$output"
