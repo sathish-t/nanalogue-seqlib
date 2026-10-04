@@ -97,7 +97,7 @@ jobs:
 
       - name: Install native build tools
         if: steps.downstream-branch.outputs.exists == 'true'
-        uses: ./.github/actions/native-tools
+        uses: $/.github/actions/native-tools
         with:
           install-cargo-zigbuild: ${{ !startsWith(matrix.platform, 'macos-') }}
 

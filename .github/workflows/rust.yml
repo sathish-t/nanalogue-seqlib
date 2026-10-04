@@ -46,7 +46,7 @@ jobs:
           rustup toolchain install stable --profile minimal --component clippy
           rustup default stable
 
-      - uses: ./.github/actions/native-tools
+      - uses: $/.github/actions/native-tools
         with:
           install-cargo-zigbuild: false
 
@@ -56,9 +56,9 @@ jobs:
   Seqlib-Testing:
     name: Seqlib test matrix
     needs: [Formatting, Linting]
-    uses: ./.github/workflows/seqlib-tests.yml
+    uses: $/.github/workflows/seqlib-tests.yml
 
   Downstream-Nanalogue:
     name: Nanalogue compatibility matrix
     needs: [Formatting, Linting]
-    uses: ./.github/workflows/downstream-nanalogue.yml
+    uses: $/.github/workflows/downstream-nanalogue.yml
