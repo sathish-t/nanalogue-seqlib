@@ -10,7 +10,18 @@ use std::{
 
 fn main() {
     let target = env::var("TARGET").unwrap();
+    let wasi = target == "wasm32-wasip1";
+    if wasi {
+        for feature in ["CURL", "BZIP2", "LZMA", "LIBDEFLATE", "S3", "GCS"] {
+            assert!(
+                env::var_os(format!("CARGO_FEATURE_{feature}")).is_none(),
+                "WASI builds support local files and plain zlib only: disable {}",
+                feature
+            );
+        }
+    }
     let mut zig_target = match target.as_str() {
+        "wasm32-wasip1" => "wasm32-wasi",
         "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
         "aarch64-unknown-linux-gnu" => "aarch64-linux-gnu",
         "x86_64-unknown-linux-musl" => "x86_64-linux-musl",
@@ -109,9 +120,12 @@ fn main() {
         }
     }
     println!("cargo:rustc-link-lib=static=z");
+    if wasi {
+        println!("cargo:rustc-link-lib=static=wasi-emulated");
+    }
     // musl includes these in libc, which Rust supplies. Asking a host GCC
     // linker for -lm would accidentally select its glibc libm.a.
-    if !target.ends_with("musl") {
+    if !wasi && !target.ends_with("musl") {
         println!("cargo:rustc-link-lib=m");
         println!("cargo:rustc-link-lib=pthread");
         if target.contains("linux") {
@@ -129,7 +143,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZIG");
     println!("cargo:rerun-if-env-changed=SDKROOT");
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
-    for file in ["network.rs", "wrapper.c", "wrapper.h"] {
+    for file in ["network.rs", "wrapper.c", "wrapper.h", "wasi.h"] {
         println!("cargo:rerun-if-changed=native/{}", file);
     }
     println!("cargo:rerun-if-changed=native/bindings/{}.rs", target);

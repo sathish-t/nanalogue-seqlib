@@ -46,6 +46,64 @@ upstream commits, input checksums, local patches and binding regeneration.
 The bindings are checked in per target ABI and checked against compiled C
 layouts by integration tests.
 
+## WebAssembly/WASI
+
+> **Experimental limitation:** WASI support is intended for single-threaded
+> use. Do not call `set_threads`, create a `ThreadPool`, or otherwise activate
+> HTSlib's thread-pool APIs: they remain present in the Rust API but are not
+> supported by this build. Other HTSlib paths that depend on operating-system
+> facilities may have limitations that have not yet been identified or audited.
+
+The `wasm32-wasip1` target supports local files and plain zlib. Network access,
+bzip2, liblzma, libdeflate, S3 and GCS are not supported, so WASI builds must
+disable the crate's default features. CRAM support is consequently limited to
+files that do not require the disabled codecs or remote reference retrieval.
+
+Install the target and pinned Zig toolchain, then compile the library:
+
+```sh
+rustup target add wasm32-wasip1
+bash native/install-zig.sh
+export PATH="$HOME/.local/bin:$PATH"
+cargo build --target wasm32-wasip1 --no-default-features --release
+```
+
+This produces a Rust library for the WASI target, not a standalone `.wasm`
+application. A consuming binary or `cdylib` crate performs the final WebAssembly
+link. In a browser, that application also needs a WASI host implementation that
+provides its filesystem and other imported APIs.
+
+For a sibling checkout, add the library to the consuming crate with:
+
+```toml
+[dependencies]
+rust-htslib = {
+    path = "../nanalogue-seqlib",
+    default-features = false,
+}
+```
+
+To consume a Git revision instead, use:
+
+```toml
+[dependencies]
+rust-htslib = {
+    git = "https://github.com/sathish-t/nanalogue-seqlib",
+    rev = "<full-commit-id>",
+    default-features = false,
+}
+```
+
+Then build the consuming application:
+
+```sh
+cargo build --target wasm32-wasip1 --release
+```
+
+Cargo features are additive across the dependency graph: if another dependency
+enables one of the unsupported features, the WASI build stops with an
+explanatory error.
+
 HTTPS retains certificate and hostname verification without changing the
 process environment. `CURL_CA_BUNDLE` is HTSlib's explicit per-request
 override; OpenSSL's `SSL_CERT_FILE` and `SSL_CERT_DIR` overrides are also

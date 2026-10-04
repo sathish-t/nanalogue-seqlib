@@ -193,12 +193,44 @@ pub fn build(b: *std.Build) void {
     if ((s3 or gcs) and !curl) {
         std.debug.panic("S3 and GCS require curl", .{});
     }
+    if (target.result.os.tag == .wasi and (bzip2 or lzma or libdeflate or curl or s3 or gcs)) {
+        std.debug.panic("WASI builds support local files and plain zlib only", .{});
+    }
 
     const compression = b.step("compression", "Build and install compression libraries");
     addCompression(b, compression, target, bzip2, lzma, libdeflate);
 
     const htslib = b.step("htslib", "Build and install HTSlib");
     addHtslib(b, htslib, target, bzip2, lzma, libdeflate, curl, s3, gcs);
+    if (target.result.os.tag == .wasi) addWasiEmulation(b, htslib, target);
+}
+
+// Rust performs the final link with its own WASI libc. Supply only the extra
+// emulation objects, not Zig's libc or command/reactor startup objects.
+fn addWasiEmulation(b: *std.Build, step: *std.Build.Step, target: std.Build.ResolvedTarget) void {
+    const module = b.createModule(.{
+        .target = target,
+        .optimize = .ReleaseSafe,
+        .link_libc = true,
+    });
+    const root: std.Build.LazyPath = .{ .cwd_relative = b.pathJoin(&.{ b.graph.zig_lib_directory.path.?, "libc/wasi" }) };
+    module.addIncludePath(root.path(b, "libc-bottom-half/cloudlibc/src"));
+    module.addCSourceFiles(.{
+        .root = root,
+        .files = &.{
+            "libc-bottom-half/signal/signal.c",
+            "libc-bottom-half/mman/mman.c",
+            "libc-bottom-half/getpid/getpid.c",
+            "libc-bottom-half/clocks/clock.c",
+            "libc-bottom-half/clocks/getrusage.c",
+            "libc-bottom-half/clocks/times.c",
+        },
+    });
+    installArtifact(b, step, b.addLibrary(.{
+        .name = "wasi-emulated",
+        .linkage = .static,
+        .root_module = module,
+    }));
 }
 
 fn addCompression(
@@ -302,10 +334,20 @@ fn addHtslib(
     module.addIncludePath(config_h.dirname());
     module.addIncludePath(b.path("vendor/htslib"));
     module.addIncludePath(.{ .cwd_relative = b.getInstallPath(.header, "") });
+    const wasi = target.result.os.tag == .wasi;
+    if (wasi) {
+        module.addCMacro("_WASI_EMULATED_SIGNAL", "1");
+        module.addCMacro("_WASI_EMULATED_MMAN", "1");
+        module.addCMacro("_WASI_EMULATED_GETPID", "1");
+        module.addCMacro("_WASI_EMULATED_PROCESS_CLOCKS", "1");
+    }
     module.addCSourceFiles(.{
         .root = b.path("vendor/htslib"),
         .files = htslib_sources,
-        .flags = &.{ "-fPIC", "-Wno-deprecated-declarations" },
+        .flags = if (wasi)
+            &.{ "-fPIC", "-Wno-deprecated-declarations", "-include", b.pathFromRoot("native/wasi.h") }
+        else
+            &.{ "-fPIC", "-Wno-deprecated-declarations" },
     });
     if (curl) {
         addCSource(module, b, "vendor/htslib/hfile_curl_ca.c");

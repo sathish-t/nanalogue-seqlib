@@ -62,6 +62,13 @@ layout; curl's source, build files, documentation and license notices remain.
   both `HAVE_LIBLZMA` and `HAVE_LZMA_H`, including on macOS. Plugins stay off.
 * The separately maintained htscodecs subtree is at 1.6.7 rather than
   HTSlib 1.24's upstream submodule revision (htscodecs 1.6.6).
+* WASI builds support local files and plain zlib only. They define Zig's signal,
+  memory-mapping, process-ID and process-clock emulation interfaces and compile
+  the corresponding `signal.c`, `mman.c`, `getpid.c`, `clock.c`, `getrusage.c`
+  and `times.c` sources from the pinned Zig 0.15.2 distribution into
+  `libwasi-emulated.a`. Rust supplies WASI libc and the final startup objects.
+  `native/wasi.h` provides a single-threaded `pthread_kill` compatibility stub
+  that reports `ENOSYS` rather than claiming signal support.
 * OpenSSL uses portable C (`no-asm`), static built-in providers, no DSO/engine
   loading, and `/etc/ssl` as the default certificate directory. curl uses only
   our static OpenSSL/zlib; unrelated optional native libraries are disabled.
@@ -77,8 +84,11 @@ layout; curl's source, build files, documentation and license notices remain.
 ## Bindings and updates
 
 `native/bindings/` contains separate files for x86_64/aarch64 Linux GNU, Linux
-musl, and macOS. These were generated using bindgen 0.72.1, libclang 14.0.6,
-and Zig 0.15.2 target headers. Layout assertions are retained. Consumer builds
+musl and macOS, plus `wasm32-wasip1`. The six native files were generated using
+bindgen 0.72.1, libclang 14.0.6 and Zig 0.15.2 target headers. The WASI file was
+generated using bindgen 0.72.1 and libclang 19 after Zig 0.15.2 preprocessed
+`native/wrapper.h` against its `wasm32-wasi` headers with the four WASI
+emulation interfaces enabled. Layout assertions are retained. Consumer builds
 do not run bindgen or require libclang; `native/bindgen` is a separate,
 maintainer-only Cargo package and is not a dependency of this crate.
 
@@ -88,8 +98,18 @@ To regenerate one target from the repository root:
 cargo run --manifest-path native/bindgen/Cargo.toml -- x86_64-unknown-linux-gnu
 ```
 
-Regenerate all six after header/toolchain changes, then run the native ABI
-tests and format/codec tests on each target. Updating sources also requires
+To regenerate the WASI bindings, make Clang and libclang 19 available through
+`CLANG_PATH` and `LIBCLANG_PATH` when they are not in their standard locations:
+
+```sh
+CLANG_PATH=/path/to/clang-19 \
+LIBCLANG_PATH=/path/to/llvm-19/lib \
+cargo run --manifest-path native/bindgen/Cargo.toml -- wasm32-wasip1
+```
+
+Regenerate all seven after header/toolchain changes, then run the native ABI
+tests and the WASI ABI/integration checks in a consuming application. Also run
+the format/codec tests on each applicable target. Updating sources requires
 checking upstream build source lists, compiler configuration, optional
 dependencies, license changes and security advisories. The version choices
 here preserve the previous native dependency baseline rather than claiming
