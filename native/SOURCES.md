@@ -12,15 +12,16 @@ not exclusively MIT-licensed.
 | [htscodecs](https://github.com/samtools/htscodecs) | 1.6.7, `b9fc194f772e45bb0a1f44b08cbf8697a1384bae` | [BSD-3-Clause](../vendor/htslib/htscodecs/LICENSE.md) |
 | [zlib](https://github.com/madler/zlib) | 1.3.2, `da607da739fa6047df13e66a2af6b8bec7c2a498` | [Zlib](../vendor/zlib/LICENSE); retained contrib notices: [DotZLib](../vendor/zlib/contrib/dotzlib/LICENSE_1_0.txt), [Info-ZIP](../vendor/zlib/contrib/minizip/LICENSE.Info-Zip) |
 | [bzip2](https://sourceware.org/git/bzip2.git) | 1.0.8, `6a8690fc8d26c815e798c588f796eabe9d684cf0` | [bzip2-1.0.6](../vendor/bzip2/LICENSE) |
-| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.8.4, `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | Compiled liblzma code is [0BSD](../vendor/xz/COPYING.0BSD); see the [overview](../vendor/xz/COPYING). Uncompiled supporting files also retain [GPL-2.0](../vendor/xz/COPYING.GPLv2), [GPL-3.0](../vendor/xz/COPYING.GPLv3), and [LGPL-2.1](../vendor/xz/COPYING.LGPLv2.1) notices. |
+| [XZ / liblzma](https://github.com/tukaani-project/xz) | 5.8.4, `d3e650e63c110e830fd5391e7f8b45df0b91d3da` | Retained liblzma code is [0BSD](../vendor/xz/COPYING.0BSD); see the [overview](../vendor/xz/COPYING). The upstream [GPL-2.0](../vendor/xz/COPYING.GPLv2), [GPL-3.0](../vendor/xz/COPYING.GPLv3), and [LGPL-2.1](../vendor/xz/COPYING.LGPLv2.1) notices are preserved too. |
 | [libdeflate](https://github.com/ebiggers/libdeflate) | 1.26, `92e6a0db9fa848d742f9eb286c92afc60f2c3dda` | [MIT](../vendor/libdeflate/COPYING) |
 | [curl](https://github.com/curl/curl) | 8.22.0, `01346829096c61b372692f6dc43ffa778c6caccd` | [curl](../vendor/curl/COPYING), plus retained [curl](../vendor/curl/LICENSES/curl.txt), [ISC](../vendor/curl/LICENSES/ISC.txt), and [BSD-4-Clause-UC](../vendor/curl/LICENSES/BSD-4-Clause-UC.txt) notices |
 | [OpenSSL](https://github.com/openssl/openssl) | 3.6.4, `d3c1b1169b3569ff3069e5b399f47b2b28e03d79` | [Apache-2.0](../vendor/openssl/LICENSE.txt); retained [Text::Template notice](../vendor/openssl/external/perl/Text-Template-1.56/LICENSE) |
 | [hts-sys wrapper](https://github.com/rust-bio/hts-sys) | 2.2.1, `64f51cc9c649df98d4d85b49c3ce242efe4aa6e6` | [MIT](HTS-SYS-LICENSE) |
 
-Release commits identify upstream baselines; the copied crate distributions
-can omit upstream files or include generated files. XZ is copied from its
-upstream release commit (annotated tag object `9151b328e76bbc468aa64f85c741886b6227cec1`).
+Release commits identify upstream baselines; the vendored trees are reduced to
+the files required by this crate and can include generated files. XZ originated
+from its upstream release commit (annotated tag object
+`9151b328e76bbc468aa64f85c741886b6227cec1`).
 Exact crates.io input archives for the remaining sources and XZ's retained
 portable `config.h` are:
 
@@ -51,19 +52,23 @@ layout; curl's source, build files, documentation and license notices remain.
   ReleaseSafe mode. OpenSSL retains its upstream Configure/Make pipeline and
   curl retains its CMake pipeline; both use the pinned Zig compiler wrappers.
 * Classic zlib replaces zlib-ng's compatibility implementation. No formats or
-  zlib ABI entry points used by HTSlib are removed.
+  zlib ABI entry points used by HTSlib or bundled curl are removed. The gzip
+  stdio wrappers and unused one-shot helpers are omitted.
 * `vendor/xz/config.h` originated in lzma-sys's portable configuration and is
-  retained as the cross-target configuration. Only the liblzma sources are
-  compiled; generator programs and size-optimized CRC alternatives are omitted.
+  retained as the cross-target configuration. The tree contains the liblzma
+  stream encoder/decoder closure used by HTSlib, including LZMA1/LZMA2, delta,
+  x86 and SPARC filters; other formats, threading support, tools, generators,
+  tests and build systems are omitted.
 * libdeflate's two 512-bit x86 checksum implementations explicitly add
   `evex512` to their function target attributes for Zig 0.15.2 / Clang 20.
   Runtime CPU dispatch remains intact; baseline compilation is not AVX-512.
 * HTSlib configuration/version headers are generated in OUT_DIR. LZMA enables
   both `HAVE_LIBLZMA` and `HAVE_LZMA_H`, including on macOS. Plugins stay off.
-* The HTSlib and htscodecs trees are intentionally reduced to the production
-  sources and headers used by this crate. Upstream command-line tools, tests,
-  examples, build systems, and C APIs unreachable from `src/htslib.rs` are
-  omitted; `build.zig` is the authoritative native source list.
+* The zlib, bzip2, XZ/liblzma, libdeflate, HTSlib and htscodecs trees are
+  intentionally reduced to the production sources and dependency headers used
+  by this crate. Upstream command-line tools, tests, examples, documentation,
+  build systems, and unreferenced translation units are omitted; licenses are
+  retained. `build.zig` is the authoritative native source list.
 * The separately maintained htscodecs subtree is at 1.6.7 rather than
   HTSlib 1.24's upstream submodule revision (htscodecs 1.6.6).
 * WASI builds support local files and plain zlib only. They define Zig's signal,
