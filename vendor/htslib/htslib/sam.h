@@ -2039,51 +2039,11 @@ typedef struct bam_mplp_s *bam_mplp_t;
     void bam_plp_destructor(bam_plp_t plp,
                             int (*func)(void *data, const bam1_t *b, bam_pileup_cd *cd));
 
-    /// Get pileup padded insertion sequence
-    /**
-     * @param p       pileup data
-     * @param ins     the kstring where the insertion sequence will be written
-     * @param del_len location for deletion length
-     * @return the length of insertion string on success; -1 on failure.
-     *
-     * Fills out the kstring with the padded insertion sequence for the current
-     * location in 'p'.  If this is not an insertion site, the string is blank.
-     *
-     * If del_len is not NULL, the location pointed to is set to the length of
-     * any deletion immediately following the insertion, or zero if none.
-     */
-    HTSLIB_EXPORT
-    int bam_plp_insertion(const bam_pileup1_t *p, kstring_t *ins, int *del_len) HTS_RESULT_USED;
-
-
     /*! @typedef
      @abstract An opaque type used for caching base modification state between
      successive calls to bam_mods_* functions.
     */
     typedef struct hts_base_mod_state hts_base_mod_state;
-
-    /// Get pileup padded insertion sequence, including base modifications
-    /**
-     * @param p       pileup data
-     * @param m       state data for the base modification finder
-     * @param ins     the kstring where the insertion sequence will be written
-     * @param del_len location for deletion length
-     * @return the number of insertion string on success, with string length
-     *         being accessable via ins->l; -1 on failure.
-     *
-     * Fills out the kstring with the padded insertion sequence for the current
-     * location in 'p'.  If this is not an insertion site, the string is blank.
-     *
-     * The modification state needs to have been previously initialised using
-     * bam_parse_basemod.  It is permitted to be passed in as NULL, in which
-     * case this function outputs identically to bam_plp_insertion.
-     *
-     * If del_len is not NULL, the location pointed to is set to the length of
-     * any deletion immediately following the insertion, or zero if none.
-     */
-    HTSLIB_EXPORT
-    int bam_plp_insertion_mod(const bam_pileup1_t *p, hts_base_mod_state *m,
-                              kstring_t *ins, int *del_len) HTS_RESULT_USED;
 
     /// Create a new bam_mplp_t structure
     /** The struct returned by a successful call should be freed

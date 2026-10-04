@@ -60,6 +60,10 @@ layout; curl's source, build files, documentation and license notices remain.
   Runtime CPU dispatch remains intact; baseline compilation is not AVX-512.
 * HTSlib configuration/version headers are generated in OUT_DIR. LZMA enables
   both `HAVE_LIBLZMA` and `HAVE_LZMA_H`, including on macOS. Plugins stay off.
+* The HTSlib and htscodecs trees are intentionally reduced to the production
+  sources and headers used by this crate. Upstream command-line tools, tests,
+  examples, build systems, and C APIs unreachable from `src/htslib.rs` are
+  omitted; `build.zig` is the authoritative native source list.
 * The separately maintained htscodecs subtree is at 1.6.7 rather than
   HTSlib 1.24's upstream submodule revision (htscodecs 1.6.6).
 * WASI builds support local files and plain zlib only. They define Zig's signal,
