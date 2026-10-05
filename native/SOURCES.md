@@ -48,8 +48,10 @@ curl 8.22.0 was copied from its upstream release commit archive at
 `https://api.github.com/repos/curl/curl/tarball/01346829096c61b372692f6dc43ffa778c6caccd`;
 download SHA-256: `aed88124499909b04b34a0d89cd724deddf201465984b4d30a0e4ee4f7f5832c`.
 The upstream command-line client, tests, documentation, Autotools files, and
-project-generator files are omitted. The library sources and headers, CMake
-build files, package templates, and license notices remain.
+project-generator files are omitted. Library translation units that compile to
+no code under this fixed configuration are also omitted; headers, CMake build
+files, package templates, license notices, and platform-specific sources for
+Windows Schannel/SSPI and macOS Apple SecTrust remain.
 
 ## Local build choices and patches
 
@@ -88,7 +90,9 @@ build files, package templates, and license notices remain.
   our static OpenSSL/zlib; unrelated optional native libraries are disabled.
   Its unused Alt-Svc, cookie, HSTS, AWS SigV4, MIME/form, netrc, option-metadata,
   header API, Kerberos and Negotiate features are also disabled through
-  upstream CMake options.
+  upstream CMake options. `vendor/curl/lib/Makefile.inc` is the authoritative
+  curl source list; it retains Windows Schannel/SSPI and macOS Apple SecTrust
+  sources even when they compile to no code on Linux.
 * On macOS, curl uses Apple SecTrust unless a CA file, directory or blob is
   explicitly selected. On Linux, the local `hfile_curl_ca` helper chooses a
   readable conventional system CA bundle at runtime for HTSlib, S3 and HTTPS

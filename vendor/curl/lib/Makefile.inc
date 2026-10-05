@@ -66,17 +66,11 @@ LIB_CURLX_HFILES =      \
   curlx/winapi.h
 
 LIB_VAUTH_CFILES =      \
-  vauth/cleartext.c     \
   vauth/cram.c          \
   vauth/digest.c        \
   vauth/digest_sspi.c   \
-  vauth/gsasl.c         \
-  vauth/krb5_gssapi.c   \
   vauth/krb5_sspi.c     \
-  vauth/ntlm.c          \
   vauth/ntlm_sspi.c     \
-  vauth/oauth2.c        \
-  vauth/spnego_gssapi.c \
   vauth/spnego_sspi.c   \
   vauth/vauth.c
 
@@ -85,16 +79,13 @@ LIB_VAUTH_HFILES =      \
   vauth/vauth.h
 
 LIB_VDNS_CFILES =           \
-  vdns/asyn-ares.c          \
   vdns/asyn-base.c          \
   vdns/asyn-thrdd.c         \
   vdns/cf-dns.c             \
   vdns/dnscache.c           \
-  vdns/doh.c                \
   vdns/hostip.c             \
   vdns/hostip4.c            \
-  vdns/hostip6.c            \
-  vdns/httpsrr.c
+  vdns/hostip6.c
 
 LIB_VDNS_HFILES =           \
   vdns/asyn.h               \
@@ -106,20 +97,14 @@ LIB_VDNS_HFILES =           \
 
 LIB_VTLS_CFILES =           \
   vtls/apple.c              \
-  vtls/cipher_suite.c       \
-  vtls/gtls.c               \
   vtls/hostcheck.c          \
   vtls/keylog.c             \
-  vtls/mbedtls.c            \
   vtls/openssl.c            \
-  vtls/rustls.c             \
   vtls/schannel.c           \
   vtls/schannel_verify.c    \
   vtls/vtls.c               \
   vtls/vtls_config.c        \
   vtls/vtls_scache.c        \
-  vtls/vtls_spack.c         \
-  vtls/wolfssl.c            \
   vtls/x509asn1.c
 
 LIB_VTLS_HFILES =           \
@@ -144,12 +129,7 @@ LIB_VTLS_HFILES =           \
 LIB_VQUIC_CFILES =          \
   vquic/capsule.c           \
   vquic/cf-capsule.c        \
-  vquic/cf-ngtcp2.c         \
-  vquic/cf-ngtcp2-cmn.c     \
-  vquic/cf-ngtcp2-proxy.c   \
-  vquic/cf-quiche.c         \
-  vquic/vquic.c             \
-  vquic/vquic-tls.c
+  vquic/vquic.c
 
 LIB_VQUIC_HFILES =          \
   vquic/capsule.h           \
@@ -162,47 +142,35 @@ LIB_VQUIC_HFILES =          \
   vquic/vquic_int.h         \
   vquic/vquic-tls.h
 
-LIB_VSSH_CFILES =    \
-  vssh/libssh.c      \
-  vssh/libssh2.c     \
-  vssh/vssh.c
+LIB_VSSH_CFILES =
 
 LIB_VSSH_HFILES =    \
   vssh/vssh.h        \
   vssh/ssh.h
 
 LIB_CFILES =         \
-  altsvc.c           \
-  amigaos.c          \
   api.c              \
   bufq.c             \
   bufref.c           \
   cf-h1-proxy.c      \
-  cf-h2-proxy.c      \
   cf-haproxy.c       \
   cf-https-connect.c \
   cf-ip-happy.c      \
-  cf-recvbuf.c       \
   cf-setup.c         \
   cf-socket.c        \
   cfilters.c         \
   conncache.c        \
   connect.c          \
   content_encoding.c \
-  cookie.c           \
   creds.c            \
   cshutdn.c          \
   curl_addrinfo.c    \
   curl_endian.c      \
   curl_fnmatch.c     \
-  curl_fopen.c       \
-  curl_get_line.c    \
   curl_gethostname.c \
-  curl_gssapi.c      \
   curl_memrchr.c     \
   curl_ntlm_core.c   \
   curl_range.c       \
-  curl_sasl.c        \
   curl_sha512_256.c  \
   curl_share.c       \
   curl_sspi.c        \
@@ -210,31 +178,23 @@ LIB_CFILES =         \
   curl_trc.c         \
   cw-out.c           \
   cw-pause.c         \
-  dict.c             \
   dynhds.c           \
   easy.c             \
   easygetopt.c       \
   easyoptions.c      \
   escape.c           \
-  fake_addrinfo.c    \
-  file.c             \
   fileinfo.c         \
   formdata.c         \
   ftp.c              \
   ftplistparser.c    \
   getenv.c           \
   getinfo.c          \
-  gopher.c           \
   hash.c             \
   headers.c          \
   hmac.c             \
-  hsts.c             \
   http.c             \
   http1.c            \
   http2.c            \
-  http_aws_sigv4.c   \
-  http_httpsig.c     \
-  curl_ed25519.c     \
   http_chunks.c      \
   http_digest.c      \
   http_negotiate.c   \
@@ -242,51 +202,37 @@ LIB_CFILES =         \
   http_proxy.c       \
   idn.c              \
   if2ip.c            \
-  imap.c             \
-  ldap.c             \
   llist.c            \
   macos.c            \
   md4.c              \
   md5.c              \
-  memdebug.c         \
   mime.c             \
   mprintf.c          \
-  mqtt.c             \
   multi.c            \
   multi_ev.c         \
   multi_ntfy.c       \
-  netrc.c            \
-  openldap.c         \
   parsedate.c        \
   peer.c             \
   pingpong.c         \
-  pop3.c             \
   progress.c         \
   protocol.c         \
   proxy.c            \
-  psl.c              \
   rand.c             \
   ratelimit.c        \
   request.c          \
-  rtsp.c             \
   select.c           \
   sendf.c            \
   setopt.c           \
   sha256.c           \
   slist.c            \
-  smb.c              \
-  smtp.c             \
   socketpair.c       \
   socks.c            \
-  socks_gssapi.c     \
   socks_sspi.c       \
   splay.c            \
   strcase.c          \
   strequal.c         \
   strerror.c         \
   system_win32.c     \
-  telnet.c           \
-  tftp.c             \
   thrdpool.c         \
   thrdqueue.c        \
   transfer.c         \
