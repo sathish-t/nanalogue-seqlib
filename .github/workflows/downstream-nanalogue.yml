@@ -23,25 +23,36 @@ jobs:
           - linux-musl-arm64
           - macos-intel
           - macos-apple-silicon
+          - windows-gnu-x86_64
         include:
           - platform: linux-gnu-x86_64
             os: ubuntu-22.04
             rust_target: ""
+            artifact_name: nanalogue-linux-x86_64
           - platform: linux-gnu-arm64
             os: ubuntu-22.04-arm
             rust_target: ""
+            artifact_name: nanalogue-linux-arm64
           - platform: linux-musl-x86_64
             os: ubuntu-22.04
             rust_target: x86_64-unknown-linux-musl
+            artifact_name: nanalogue-linux-x86_64-musl
           - platform: linux-musl-arm64
             os: ubuntu-22.04-arm
             rust_target: aarch64-unknown-linux-musl
+            artifact_name: nanalogue-linux-arm64-musl
           - platform: macos-intel
             os: macos-15-intel
             rust_target: x86_64-apple-darwin
+            artifact_name: nanalogue-macos-x86_64
           - platform: macos-apple-silicon
             os: macos-15
             rust_target: aarch64-apple-darwin
+            artifact_name: nanalogue-macos-arm64
+          - platform: windows-gnu-x86_64
+            os: ubuntu-22.04
+            rust_target: x86_64-pc-windows-gnu
+            artifact_name: nanalogue-windows-x86_64
 
     steps:
       - name: Checkout nanalogue-seqlib
@@ -133,10 +144,16 @@ jobs:
           else
             build_command=(cargo build)
           fi
-          "${build_command[@]}" --all-targets "${target_args[@]}" "${feature_args[@]}"
+          build_targets=(--all-targets)
+          if [[ "${{ matrix.platform }}" == windows-gnu-x86_64 ]]; then
+            # Nanalogue has Unix-only integration-test crates; the product
+            # binaries are the supported Windows deliverable.
+            build_targets=(--bins)
+          fi
+          "${build_command[@]}" "${build_targets[@]}" "${target_args[@]}" "${feature_args[@]}"
 
       - name: Run downstream tests
-        if: steps.downstream-branch.outputs.exists == 'true'
+        if: steps.downstream-branch.outputs.exists == 'true' && matrix.platform != 'windows-gnu-x86_64'
         working-directory: downstream/nanalogue
         env:
           FEATURE_ARGS: ${{ matrix.feature == 'all' && '--all-features' || '' }}
@@ -161,3 +178,67 @@ jobs:
           "${test_command[@]}" "${target_args[@]}" "${feature_args[@]}" -- --test-threads=1
           "${test_command[@]}" "${target_args[@]}" "${feature_args[@]}" -- \
             --ignored --test-threads=1
+
+      - name: Build release artifact
+        id: package
+        if: steps.downstream-branch.outputs.exists == 'true' && matrix.branch == 'main' && matrix.feature == 'default'
+        working-directory: downstream/nanalogue
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact_name }}
+          PLATFORM: ${{ matrix.platform }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          if [[ -n "$RUST_TARGET" ]]; then
+            target="$RUST_TARGET"
+          else
+            target="$(rustc -vV | sed -n 's/^host: //p')"
+          fi
+          if [[ "$PLATFORM" == macos-* ]]; then
+            build_command=(cargo build)
+          else
+            build_command=(cargo-zigbuild zigbuild)
+          fi
+          "${build_command[@]}" --release --bin nanalogue --target "$target"
+
+          package="$RUNNER_TEMP/$ARTIFACT_NAME"
+          mkdir -p "$package"
+          if [[ "$PLATFORM" == windows-gnu-x86_64 ]]; then
+            cp "target/$target/release/nanalogue.exe" "$package/"
+            file "$package/nanalogue.exe" | grep -F "PE32+ executable"
+            python3 -m zipfile -c "$RUNNER_TEMP/$ARTIFACT_NAME.zip" \
+              "$package/nanalogue.exe"
+            echo "path=$RUNNER_TEMP/$ARTIFACT_NAME.zip" >> "$GITHUB_OUTPUT"
+          else
+            cp "target/$target/release/nanalogue" "$package/"
+            tar -C "$package" -czf "$RUNNER_TEMP/$ARTIFACT_NAME.tar.gz" nanalogue
+            echo "path=$RUNNER_TEMP/$ARTIFACT_NAME.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload release artifact
+        if: steps.downstream-branch.outputs.exists == 'true' && matrix.branch == 'main' && matrix.feature == 'default'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
+
+  Windows-Smoke:
+    name: Nanalogue Windows smoke tests
+    needs: Downstream-Nanalogue
+    runs-on: windows-2022
+    steps:
+      - name: Download Windows release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nanalogue-windows-x86_64
+
+      - name: Smoke-test Windows executable
+        shell: pwsh
+        run: |
+          $fixture = "https://raw.githubusercontent.com/DNAReplicationLab/nanalogue/91827dbfe4a06e15c59c336aae3e2cb1f83db217/examples/example_1.bam"
+          Expand-Archive .\nanalogue-windows-x86_64.zip .\nanalogue-windows-x86_64
+          Invoke-WebRequest $fixture -OutFile .\example_1.bam
+          .\nanalogue-windows-x86_64\nanalogue.exe --help
+          .\nanalogue-windows-x86_64\nanalogue.exe read-stats .\example_1.bam
+          .\nanalogue-windows-x86_64\nanalogue.exe read-stats $fixture

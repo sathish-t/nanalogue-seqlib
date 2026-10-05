@@ -22,6 +22,14 @@ CURLcode hts_curl_configure_ca(CURL *easy)
     if (getenv("SSL_CERT_FILE") != NULL || getenv("SSL_CERT_DIR") != NULL)
         return CURLE_OK;
 
+#ifdef _WIN32
+    result = curl_easy_setopt(easy, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+    if (result != CURLE_OK)
+        return result;
+    return curl_easy_setopt(easy, CURLOPT_PROXY_SSL_OPTIONS,
+                            CURLSSLOPT_NATIVE_CA);
+#endif
+
 #ifdef __linux__
     {
         static const char * const bundles[] = {

@@ -78,6 +78,14 @@ Windows Schannel/SSPI and macOS Apple SecTrust remain.
   retained. `build.zig` is the authoritative native source list.
 * The separately maintained htscodecs subtree is at 1.6.7 rather than
   HTSlib 1.24's upstream submodule revision (htscodecs 1.6.6).
+* HTSlib filter expressions and FASTQ UMI extraction/formatting are omitted;
+  Nanalogue does not use them, and removing their POSIX-regex dependency keeps
+  the Windows build self-contained. Their public option numbers remain reserved
+  but return an unsupported error. Ordinary FASTQ handling remains available.
+* HTSlib's Windows OS and random sources and OpenSSL's MinGW platform sources
+  come from the same pinned HTSlib 1.24 and OpenSSL 3.6.4 commits listed above.
+  Windows builds enforce 64-bit file offsets, use curl's native CA store, and
+  link the required Windows system libraries.
 * WASI builds support local files and plain zlib only. They define Zig's signal,
   memory-mapping, process-ID and process-clock emulation interfaces and compile
   the corresponding `signal.c`, `mman.c`, `getpid.c`, `clock.c`, `getrusage.c`

@@ -60,7 +60,6 @@ DEALINGS IN THE SOFTWARE.  */
 #include "hfile_internal.h"
 #include "sam_internal.h"
 #include "htslib/hts_alloc.h"
-#include "htslib/hts_expr.h"
 #include "htslib/hts_os.h" // drand48
 
 #include "htslib/khash.h"
@@ -1185,10 +1184,6 @@ int hts_opt_add(hts_opt **opts, const char *c_arg) {
              strcmp(o->arg, "LEVEL") == 0)
         o->opt = HTS_OPT_COMPRESSION_LEVEL, o->val.i = strtol(val, NULL, 0);
 
-    else if (strcmp(o->arg, "filter") == 0 ||
-             strcmp(o->arg, "FILTER") == 0)
-        o->opt = HTS_OPT_FILTER, o->val.s = val;
-
     else if (strcmp(o->arg, "fastq_aux") == 0 ||
         strcmp(o->arg, "FASTQ_AUX") == 0)
         o->opt = FASTQ_OPT_AUX, o->val.s = val;
@@ -1208,14 +1203,6 @@ int hts_opt_add(hts_opt **opts, const char *c_arg) {
     else if (strcmp(o->arg, "fastq_name2") == 0 ||
         strcmp(o->arg, "FASTQ_NAME2") == 0)
         o->opt = FASTQ_OPT_NAME2, o->val.i = 1;
-
-    else if (strcmp(o->arg, "fastq_umi") == 0 ||
-        strcmp(o->arg, "FASTQ_UMI") == 0)
-        o->opt = FASTQ_OPT_UMI, o->val.s = val;
-
-    else if (strcmp(o->arg, "fastq_umi_regex") == 0 ||
-        strcmp(o->arg, "FASTQ_UMI_REGEX") == 0)
-        o->opt = FASTQ_OPT_UMI_REGEX, o->val.s = val;
 
     else {
         hts_log_error("Unknown option '%s'", o->arg);
@@ -1256,11 +1243,8 @@ int hts_opt_apply(htsFile *fp, hts_opt *opts) {
                 // fall through
             case CRAM_OPT_VERSION:
             case CRAM_OPT_PREFIX:
-            case HTS_OPT_FILTER:
             case FASTQ_OPT_AUX:
             case FASTQ_OPT_BARCODE:
-            case FASTQ_OPT_UMI:
-            case FASTQ_OPT_UMI_REGEX:
                 if (hts_set_opt(fp,  opts->opt,  opts->val.s) != 0)
                     return -1;
                 break;
@@ -1701,7 +1685,6 @@ int hts_close(htsFile *fp)
     save = errno;
     sam_hdr_destroy(fp->bam_header);
     hts_idx_destroy(fp->idx);
-    hts_filter_free(fp->filter);
     free(fp->fn);
     free(fp->fn_aux);
     free(fp->line.s);
@@ -1852,8 +1835,6 @@ int hts_set_opt(htsFile *fp, enum hts_fmt_option opt, ...) {
         return 0;
 
     case FASTQ_OPT_BARCODE:
-    case FASTQ_OPT_UMI:
-    case FASTQ_OPT_UMI_REGEX:
         if (fp->format.format == fastq_format ||
             fp->format.format == fasta_format) {
             va_start(args, opt);
@@ -1875,12 +1856,10 @@ int hts_set_opt(htsFile *fp, enum hts_fmt_option opt, ...) {
         return 0;
     }
 
-    case HTS_OPT_FILTER: {
-        va_start(args, opt);
-        char *expr = va_arg(args, char *);
-        va_end(args);
-        return hts_set_filter_expression(fp, expr);
-    }
+    case HTS_OPT_FILTER:
+    case FASTQ_OPT_UMI:
+    case FASTQ_OPT_UMI_REGEX:
+        return -1;
 
     case HTS_OPT_PROFILE: {
         va_start(args, opt);
@@ -1963,18 +1942,6 @@ int hts_set_fai_filename(htsFile *fp, const char *fn_aux)
             return -1;
 
     return 0;
-}
-
-int hts_set_filter_expression(htsFile *fp, const char *expr)
-{
-    if (fp->filter)
-        hts_filter_free(fp->filter);
-
-    if (!expr)
-        return 0;
-
-    return (fp->filter = hts_filter_init(expr))
-        ? 0 : -1;
 }
 
 hFILE *hts_open_tmpfile(const char *fname, const char *mode, kstring_t *tmpname)

@@ -16,8 +16,9 @@ git clone https://github.com/sathish-t/nanalogue-seqlib.git
 
 Install Rust and **Zig 0.15.2**. Default/network-enabled builds also require
 CMake (3.18+), Make and Perl. On macOS, install the Apple command-line tools/SDK
-for native OS headers and final linking. The supported hosts are Linux and macOS; supported targets
-are x86_64 and ARM64 Linux GNU/musl and macOS.
+for native OS headers and final linking. The supported hosts are Linux and macOS;
+supported targets are x86_64 and ARM64 Linux GNU/musl and macOS, plus x86-64
+Windows GNU when cross-compiling from Linux.
 
 ```sh
 # Optional installer; requires curl, minisign, and xz/tar.
@@ -46,6 +47,25 @@ upstream commits, input checksums, local patches and how the HTSlib bindings
 are maintained. `src/htslib.rs` declares only the small part of HTSlib this
 crate uses, by hand; integration tests check its layouts and constants against
 the compiled C headers.
+
+## Windows
+
+Windows support targets `x86_64-pc-windows-gnu` and is cross-compiled from a
+Linux host. Install the Rust target and the pinned `cargo-zigbuild` version,
+then build the library or a consuming executable:
+
+```sh
+rustup target add x86_64-pc-windows-gnu
+cargo install --locked cargo-zigbuild --version 0.23.0
+bash native/install-zig.sh
+export PATH="$HOME/.local/bin:$PATH"
+cargo zigbuild --release --target x86_64-pc-windows-gnu --all-features
+```
+
+Zig compiles the vendored native libraries for MinGW and supplies the final
+linker. Those libraries are linked statically; the resulting executable still
+uses standard Windows system DLLs. Native builds from a Windows host and the
+MSVC target are not supported.
 
 ## WebAssembly/WASI
 
@@ -170,13 +190,16 @@ cargo test --no-default-features
 cargo doc --all-features --no-deps
 ```
 
-CI covers both native platforms and WASI. It builds and runs seqlib's
+CI covers the native platforms, Windows GNU and WASI. It builds and runs seqlib's
 default-feature, `--no-default-features`, and `--all-features` test
 configurations on GNU/Linux and MUSL for both x86_64 and ARM64, plus macOS Intel
-and Apple Silicon. MUSL jobs use matching-architecture runners and also target
-MUSL in the compile-fail tests' nested Cargo invocations. For WASI, CI compiles
-and links the test targets without running them, and verifies that the
-unsupported default features are rejected. [Upstream API
+and Apple Silicon. It cross-compiles all three configurations for Windows GNU,
+builds release archives containing the `nanalogue` executable for all seven
+platform targets, and smoke-tests the Windows archive on a Windows runner. MUSL
+jobs use matching-architecture runners and also target MUSL in the compile-fail
+tests' nested Cargo invocations. For WASI, CI compiles and links the test targets
+without running them, and verifies that the unsupported default features are
+rejected. [Upstream API
 documentation](https://docs.rs/rust-htslib) is useful background but may differ
 from this fork; use locally generated documentation for its current API.
 

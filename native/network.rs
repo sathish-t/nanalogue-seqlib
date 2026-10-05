@@ -237,6 +237,7 @@ fn target_settings(target: &str) -> (&'static str, &'static str, &'static str) {
         }
         "x86_64-apple-darwin" => ("darwin64-x86_64-cc", "Darwin", "x86_64"),
         "aarch64-apple-darwin" => ("darwin64-arm64-cc", "Darwin", "arm64"),
+        "x86_64-pc-windows-gnu" => ("mingw64", "Windows", "x86_64"),
         other => panic!("unsupported vendored network target: {}", other),
     }
 }

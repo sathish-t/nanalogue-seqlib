@@ -28,6 +28,7 @@ fn main() {
         "aarch64-unknown-linux-musl" => "aarch64-linux-musl",
         "x86_64-apple-darwin" => "x86_64-macos",
         "aarch64-apple-darwin" => "aarch64-macos",
+        "x86_64-pc-windows-gnu" => "x86_64-windows-gnu",
         _ => panic!("unsupported vendored HTSlib target: {}", target),
     }
     .to_owned();
@@ -97,6 +98,18 @@ fn main() {
     run_zig(&root, &out, &zig, &zig_target, "compression");
     network::build(&out, &target, &compiler, &archiver);
     run_zig(&root, &out, &zig, &zig_target, "htslib");
+    if target.contains("windows") {
+        for library in ["hts", "z", "deflate", "lzma", "bz2"] {
+            let source = out.join("native/lib").join(format!("{library}.lib"));
+            if source.exists() {
+                fs::copy(
+                    &source,
+                    out.join("native/lib").join(format!("lib{library}.a")),
+                )
+                .unwrap();
+            }
+        }
+    }
     println!(
         "cargo:rustc-link-search=native={}/native/lib",
         out.display()
@@ -115,12 +128,22 @@ fn main() {
         }
     }
     println!("cargo:rustc-link-lib=static=z");
+    if target.contains("windows") {
+        println!("cargo:rustc-link-lib=pthread");
+        if env::var_os("CARGO_FEATURE_CURL").is_some() {
+            for library in [
+                "ws2_32", "crypt32", "bcrypt", "advapi32", "user32", "iphlpapi",
+            ] {
+                println!("cargo:rustc-link-lib={library}");
+            }
+        }
+    }
     if wasi {
         println!("cargo:rustc-link-lib=static=wasi-emulated");
     }
     // musl includes these in libc, which Rust supplies. Asking a host GCC
     // linker for -lm would accidentally select its glibc libm.a.
-    if !wasi && !target.ends_with("musl") {
+    if !wasi && !target.ends_with("musl") && !target.contains("windows") {
         println!("cargo:rustc-link-lib=m");
         println!("cargo:rustc-link-lib=pthread");
         if target.contains("linux") {

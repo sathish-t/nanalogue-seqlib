@@ -3,6 +3,10 @@
 
 #include "wrapper.h"
 
+#ifdef _WIN32
+_Static_assert(sizeof(off_t) == 8, "Windows HTSlib requires 64-bit file offsets");
+#endif
+
 int64_t wrap_bgzf_tell(BGZF *fp)
 {
 	return bgzf_tell(fp);

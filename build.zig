@@ -91,7 +91,7 @@ const htslib_sources = &.{
     "header.c",
     "hfile.c",
     "hts.c",
-    "hts_expr.c",
+    "hts_os.c",
     "md5.c",
     "multipart.c",
     "region.c",
@@ -187,10 +187,18 @@ fn addCompression(
     lzma: bool,
     libdeflate: bool,
 ) void {
-    const zlib = addLibrary(b, "z", target, "vendor/zlib", zlib_sources, &.{"."}, &.{
-        "-fPIC",
-        "-DHAVE_UNISTD_H=1",
-    });
+    const zlib = addLibrary(
+        b,
+        "z",
+        target,
+        "vendor/zlib",
+        zlib_sources,
+        &.{"."},
+        if (target.result.os.tag == .windows)
+            common_flags
+        else
+            &.{ "-fPIC", "-DHAVE_UNISTD_H=1" },
+    );
     installArtifact(b, step, zlib);
     installHeader(b, step, "vendor/zlib/zlib.h", "zlib.h");
     installHeader(b, step, "vendor/zlib/zconf.h", "zconf.h");
@@ -248,9 +256,9 @@ fn addHtslib(
     gcs: bool,
 ) void {
     const config = b.fmt(
-        \\#define HAVE_DRAND48 1
-        \\{s}{s}{s}{s}{s}{s}{s}{s}
+        \\{s}{s}{s}{s}{s}{s}{s}{s}{s}
     , .{
+        enabled(target.result.os.tag != .windows, "#define HAVE_DRAND48 1\n"),
         enabled(bzip2, "#define HAVE_LIBBZ2 1\n"),
         enabled(lzma, "#define HAVE_LZMA_H 1\n"),
         enabled(libdeflate, "#define HAVE_LIBDEFLATE 1\n"),
@@ -286,6 +294,12 @@ fn addHtslib(
         module.addCMacro("_WASI_EMULATED_MMAN", "1");
         module.addCMacro("_WASI_EMULATED_GETPID", "1");
         module.addCMacro("_WASI_EMULATED_PROCESS_CLOCKS", "1");
+    }
+    if (curl and target.result.os.tag == .windows) {
+        module.addCMacro("CURL_STATICLIB", "1");
+    }
+    if (target.result.os.tag == .windows) {
+        module.addCMacro("_FILE_OFFSET_BITS", "64");
     }
     module.addCSourceFiles(.{
         .root = b.path("vendor/htslib"),
