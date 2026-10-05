@@ -86,6 +86,9 @@ build files, package templates, and license notices remain.
 * OpenSSL uses portable C (`no-asm`), static built-in providers, no DSO/engine
   loading, and `/etc/ssl` as the default certificate directory. curl uses only
   our static OpenSSL/zlib; unrelated optional native libraries are disabled.
+  Its unused Alt-Svc, cookie, HSTS, AWS SigV4, MIME/form, netrc, option-metadata,
+  header API, Kerberos and Negotiate features are also disabled through
+  upstream CMake options.
 * On macOS, curl uses Apple SecTrust unless a CA file, directory or blob is
   explicitly selected. On Linux, the local `hfile_curl_ca` helper chooses a
   readable conventional system CA bundle at runtime for HTSlib, S3 and HTTPS
