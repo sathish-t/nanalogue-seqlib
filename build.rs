@@ -48,6 +48,9 @@ fn main() {
     let mut cc = format!("{} cc -target {} -mcpu=baseline", quote(&zig), zig_target);
     if target.contains("apple") {
         let deployment = env::var("MACOSX_DEPLOYMENT_TARGET").unwrap_or_else(|_| {
+            if target == "x86_64-apple-darwin" {
+                return "10.14".to_owned();
+            }
             let output = Command::new(env::var_os("RUSTC").unwrap())
                 .args(["--print", "deployment-target", "--target", &target])
                 .output()

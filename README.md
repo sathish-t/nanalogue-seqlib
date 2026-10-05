@@ -16,9 +16,10 @@ git clone https://github.com/sathish-t/nanalogue-seqlib.git
 
 Install Rust and **Zig 0.15.2**. Default/network-enabled builds also require
 CMake (3.18+), Make and Perl. On macOS, install the Apple command-line tools/SDK
-for native OS headers and final linking. The supported hosts are Linux and macOS;
-supported targets are x86_64 and ARM64 Linux GNU/musl and macOS, plus x86-64
-Windows GNU when cross-compiling from Linux.
+for native OS headers and final linking. Intel macOS builds target macOS 10.14
+or newer; Apple Silicon builds target macOS 11 or newer. The supported hosts are
+Linux and macOS; supported targets are x86_64 and ARM64 Linux GNU/musl and
+macOS, plus x86-64 Windows GNU when cross-compiling from Linux.
 
 ```sh
 # Optional installer; requires curl, minisign, and xz/tar.

@@ -45,14 +45,19 @@ jobs:
             os: macos-15-intel
             rust_target: x86_64-apple-darwin
             artifact_name: nanalogue-macos-x86_64
+            macos_deployment_target: "10.14"
           - platform: macos-apple-silicon
             os: macos-15
             rust_target: aarch64-apple-darwin
             artifact_name: nanalogue-macos-arm64
+            macos_deployment_target: "11.0"
           - platform: windows-gnu-x86_64
             os: ubuntu-22.04
             rust_target: x86_64-pc-windows-gnu
             artifact_name: nanalogue-windows-x86_64
+
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_deployment_target }}
 
     steps:
       - name: Checkout nanalogue-seqlib

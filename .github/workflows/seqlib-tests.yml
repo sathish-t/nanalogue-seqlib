@@ -140,9 +140,13 @@ jobs:
           - platform: intel
             os: macos-15-intel
             toolchain_target: x86_64-apple-darwin
+            deployment_target: "10.14"
           - platform: apple-silicon
             os: macos-15
             toolchain_target: aarch64-apple-darwin
+            deployment_target: "11.0"
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.deployment_target }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
