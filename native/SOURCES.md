@@ -47,8 +47,9 @@ formats are disabled.
 curl 8.22.0 was copied from its upstream release commit archive at
 `https://api.github.com/repos/curl/curl/tarball/01346829096c61b372692f6dc43ffa778c6caccd`;
 download SHA-256: `aed88124499909b04b34a0d89cd724deddf201465984b4d30a0e4ee4f7f5832c`.
-The upstream test tree is omitted, matching the previous `curl-sys`-sourced
-layout; curl's source, build files, documentation and license notices remain.
+The upstream command-line client, tests, documentation, Autotools files, and
+project-generator files are omitted. The library sources and headers, CMake
+build files, package templates, and license notices remain.
 
 ## Local build choices and patches
 
