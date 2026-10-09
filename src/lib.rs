@@ -84,12 +84,6 @@
 //! * [`records`](bam/struct.IndexedReader.html#method.records)
 //! * [`read`](bam/struct.IndexedReader.html#method.read)
 
-#[macro_use]
-extern crate custom_derive;
-
-#[macro_use]
-extern crate newtype_derive;
-
 pub mod bam;
 pub mod errors;
 pub mod faidx;

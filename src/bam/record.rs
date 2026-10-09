@@ -1436,39 +1436,71 @@ impl fmt::Display for Cigar {
     }
 }
 
-custom_derive! {
-    /// A CIGAR string. This type wraps around a `Vec<Cigar>`.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use rust_htslib::bam::record::{Cigar, CigarString};
-    ///
-    /// let cigar = CigarString(vec![Cigar::Match(100), Cigar::SoftClip(10)]);
-    ///
-    /// // access by index
-    /// assert_eq!(cigar[0], Cigar::Match(100));
-    /// // format into classical string representation
-    /// assert_eq!(format!("{}", cigar), "100M10S");
-    /// // iterate
-    /// for op in &cigar {
-    ///    println!("{}", op);
-    /// }
-    /// ```
-    #[derive(
-        NewtypeDeref,
-        NewtypeDerefMut,
-        NewtypeIndex(usize),
-        NewtypeIndexMut(usize),
-        NewtypeFrom,
-        PartialEq,
-        PartialOrd,
-        Eq,
-        NewtypeDebug,
-        Clone,
-        Hash
-    )]
-    pub struct CigarString(pub Vec<Cigar>);
+/// A CIGAR string. This type wraps around a `Vec<Cigar>`.
+///
+/// # Example
+///
+/// ```
+/// use rust_htslib::bam::record::{Cigar, CigarString};
+///
+/// let cigar = CigarString(vec![Cigar::Match(100), Cigar::SoftClip(10)]);
+///
+/// // access by index
+/// assert_eq!(cigar[0], Cigar::Match(100));
+/// // format into classical string representation
+/// assert_eq!(format!("{}", cigar), "100M10S");
+/// // iterate
+/// for op in &cigar {
+///    println!("{}", op);
+/// }
+/// ```
+#[derive(PartialEq, PartialOrd, Eq, Clone, Hash)]
+pub struct CigarString(pub Vec<Cigar>);
+
+impl ops::Deref for CigarString {
+    type Target = Vec<Cigar>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ops::DerefMut for CigarString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl ops::Index<usize> for CigarString {
+    type Output = Cigar;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl ops::IndexMut<usize> for CigarString {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+impl From<Vec<Cigar>> for CigarString {
+    fn from(cigar: Vec<Cigar>) -> Self {
+        Self(cigar)
+    }
+}
+
+impl From<CigarString> for Vec<Cigar> {
+    fn from(cigar: CigarString) -> Self {
+        cigar.0
+    }
+}
+
+impl fmt::Debug for CigarString {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.0, fmt)
+    }
 }
 
 impl CigarString {
