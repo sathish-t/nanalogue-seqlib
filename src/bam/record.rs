@@ -3,6 +3,7 @@
 // This file may not be copied, modified, or distributed
 // except according to those terms.
 
+use std::convert::TryInto;
 use std::ffi;
 use std::fmt;
 use std::marker::PhantomData;
@@ -12,8 +13,6 @@ use std::os::raw::c_char;
 use std::slice;
 use std::str;
 use std::sync::Arc;
-
-use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::bam::Error;
 use crate::bam::HeaderView;
@@ -289,7 +288,10 @@ impl Record {
         if let Some(cigar_string) = cigar {
             let cigar_data = unsafe {
                 //cigar is always aligned to 4 bytes (see extranul above) - so this is safe
-                #[allow(clippy::cast_ptr_alignment)]
+                #[expect(
+                    clippy::cast_ptr_alignment,
+                    reason = "cigar data is always 4-byte aligned"
+                )]
                 slice::from_raw_parts_mut(data[i..].as_ptr() as *mut u32, cigar_string.len())
             };
             for (i, c) in cigar_string.iter().enumerate() {
@@ -399,7 +401,10 @@ impl Record {
     /// Usually, the method `Record::cigar` should be used instead.
     pub fn raw_cigar(&self) -> &[u32] {
         //cigar is always aligned to 4 bytes - so this is safe
-        #[allow(clippy::cast_ptr_alignment)]
+        #[expect(
+            clippy::cast_ptr_alignment,
+            reason = "cigar data is always 4-byte aligned"
+        )]
         unsafe {
             slice::from_raw_parts(
                 self.data()[self.qname_capacity()..].as_ptr() as *const u32,
@@ -546,6 +551,10 @@ impl Record {
         self.data().get(offset..).ok_or(Error::BamAuxParsingError)
     }
 
+    #[expect(
+        clippy::little_endian_bytes,
+        reason = "BAM stores multi-byte numbers little-endian"
+    )]
     fn aux_field_len(aux: &[u8]) -> Result<usize> {
         const TYPE_ID_LEN: usize = 1;
         const ARRAY_INNER_TYPE_LEN: usize = 1;
@@ -570,7 +579,8 @@ impl Record {
                 let count = aux
                     .get(TYPE_ID_LEN + ARRAY_INNER_TYPE_LEN..array_data_offset)
                     .ok_or(Error::BamAuxParsingError)?
-                    .read_u32::<LittleEndian>()
+                    .try_into()
+                    .map(u32::from_le_bytes)
                     .map_err(|_| Error::BamAuxParsingError)? as usize;
                 let element_size = match inner_type {
                     b'c' | b'C' => 1,
@@ -596,6 +606,10 @@ impl Record {
         Ok(field_len)
     }
 
+    #[expect(
+        clippy::little_endian_bytes,
+        reason = "BAM stores multi-byte numbers little-endian"
+    )]
     fn read_aux_field<'a>(aux: &'a [u8]) -> Result<(Aux<'a>, usize)> {
         const TYPE_ID_LEN: usize = 1;
         const ARRAY_INNER_TYPE_LEN: usize = 1;
@@ -624,7 +638,8 @@ impl Record {
                 (
                     Aux::I16(
                         fixed_data(type_size)?
-                            .read_i16::<LittleEndian>()
+                            .try_into()
+                            .map(i16::from_le_bytes)
                             .map_err(|_| Error::BamAuxParsingError)?,
                     ),
                     type_size,
@@ -635,7 +650,8 @@ impl Record {
                 (
                     Aux::U16(
                         fixed_data(type_size)?
-                            .read_u16::<LittleEndian>()
+                            .try_into()
+                            .map(u16::from_le_bytes)
                             .map_err(|_| Error::BamAuxParsingError)?,
                     ),
                     type_size,
@@ -646,7 +662,8 @@ impl Record {
                 (
                     Aux::I32(
                         fixed_data(type_size)?
-                            .read_i32::<LittleEndian>()
+                            .try_into()
+                            .map(i32::from_le_bytes)
                             .map_err(|_| Error::BamAuxParsingError)?,
                     ),
                     type_size,
@@ -657,7 +674,8 @@ impl Record {
                 (
                     Aux::U32(
                         fixed_data(type_size)?
-                            .read_u32::<LittleEndian>()
+                            .try_into()
+                            .map(u32::from_le_bytes)
                             .map_err(|_| Error::BamAuxParsingError)?,
                     ),
                     type_size,
@@ -668,7 +686,8 @@ impl Record {
                 (
                     Aux::Float(
                         fixed_data(type_size)?
-                            .read_f32::<LittleEndian>()
+                            .try_into()
+                            .map(f32::from_le_bytes)
                             .map_err(|_| Error::BamAuxParsingError)?,
                     ),
                     type_size,
@@ -679,7 +698,8 @@ impl Record {
                 (
                     Aux::Double(
                         fixed_data(type_size)?
-                            .read_f64::<LittleEndian>()
+                            .try_into()
+                            .map(f64::from_le_bytes)
                             .map_err(|_| Error::BamAuxParsingError)?,
                     ),
                     type_size,
@@ -706,7 +726,8 @@ impl Record {
                 let length = aux
                     .get(TYPE_ID_LEN + ARRAY_INNER_TYPE_LEN..array_data_offset)
                     .ok_or(Error::BamAuxParsingError)?
-                    .read_u32::<LittleEndian>()
+                    .try_into()
+                    .map(u32::from_le_bytes)
                     .map_err(|_| Error::BamAuxParsingError)? as usize;
                 let array_bytes = |element_size| {
                     length
@@ -1064,44 +1085,31 @@ pub enum Aux<'a> {
 
 /// Types that can be used in aux arrays.
 pub trait AuxArrayElement: Copy {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self>;
+    fn from_le_bytes(bytes: &[u8]) -> Self;
 }
 
-impl AuxArrayElement for i8 {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self> {
-        std::io::Cursor::new(bytes).read_i8().ok()
-    }
+macro_rules! impl_aux_array_element {
+    ($($t:ty),*) => {$(
+        impl AuxArrayElement for $t {
+            #[expect(
+                clippy::little_endian_bytes,
+                reason = "BAM stores multi-byte numbers little-endian"
+            )]
+            fn from_le_bytes(bytes: &[u8]) -> Self {
+                <$t>::from_le_bytes(bytes.try_into().unwrap_or_else(|_| {
+                    panic!(
+                        "{} aux array element must be exactly {} bytes, got {}",
+                        stringify!($t),
+                        size_of::<$t>(),
+                        bytes.len(),
+                    )
+                }))
+            }
+        }
+    )*};
 }
-impl AuxArrayElement for u8 {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self> {
-        std::io::Cursor::new(bytes).read_u8().ok()
-    }
-}
-impl AuxArrayElement for i16 {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self> {
-        std::io::Cursor::new(bytes).read_i16::<LittleEndian>().ok()
-    }
-}
-impl AuxArrayElement for u16 {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self> {
-        std::io::Cursor::new(bytes).read_u16::<LittleEndian>().ok()
-    }
-}
-impl AuxArrayElement for i32 {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self> {
-        std::io::Cursor::new(bytes).read_i32::<LittleEndian>().ok()
-    }
-}
-impl AuxArrayElement for u32 {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self> {
-        std::io::Cursor::new(bytes).read_u32::<LittleEndian>().ok()
-    }
-}
-impl AuxArrayElement for f32 {
-    fn from_le_bytes(bytes: &[u8]) -> Option<Self> {
-        std::io::Cursor::new(bytes).read_f32::<LittleEndian>().ok()
-    }
-}
+
+impl_aux_array_element!(i8, u8, i16, u16, i32, u32, f32);
 
 /// Provides access to aux arrays.
 ///
@@ -1256,7 +1264,9 @@ where
         if index * type_size + type_size > self.slice.len() {
             return None;
         }
-        T::from_le_bytes(&self.slice[index * type_size..][..type_size])
+        Some(T::from_le_bytes(
+            &self.slice[index * type_size..][..type_size],
+        ))
     }
 
     fn len(&self) -> usize {
@@ -1653,6 +1663,74 @@ mod tests {
     }
 
     #[test]
+    fn push_aux_round_trips_all_scalar_types() {
+        use std::convert::identity;
+
+        // `$key` maps a value to what is compared: the value itself for integers,
+        // and the raw bits for floats so that -0.0 and NaN are checked exactly.
+        macro_rules! assert_scalar_round_trip {
+            ($variant:ident, $values:expr, $key:expr) => {
+                for value in $values {
+                    let mut record = Record::new();
+                    record.set(b"read", None, b"A", b"I");
+                    record.push_aux(b"XS", Aux::$variant(value)).unwrap();
+                    match record.aux(b"XS") {
+                        Ok(Aux::$variant(read)) => assert_eq!($key(read), $key(value)),
+                        other => panic!(
+                            "{} round trip of {:?} gave {:?}",
+                            stringify!($variant),
+                            value,
+                            other
+                        ),
+                    }
+                }
+            };
+        }
+
+        assert_scalar_round_trip!(Char, *b"A~", identity);
+        assert_scalar_round_trip!(I8, [i8::MIN, -1, 0, i8::MAX], identity);
+        assert_scalar_round_trip!(U8, [0, 1, u8::MAX], identity);
+        assert_scalar_round_trip!(I16, [i16::MIN, -12345, -1, 0, i16::MAX], identity);
+        assert_scalar_round_trip!(U16, [0, 1, 54321, u16::MAX], identity);
+        assert_scalar_round_trip!(
+            I32,
+            [i32::MIN, -2_000_000_000, -1, 0, 1, i32::MAX],
+            identity
+        );
+        assert_scalar_round_trip!(U32, [0, 1, 4_000_000_000, u32::MAX], identity);
+        assert_scalar_round_trip!(
+            Float,
+            [
+                -1.25,
+                0.0,
+                -0.0,
+                f32::MIN_POSITIVE / 2.0,
+                f32::MAX,
+                f32::NEG_INFINITY,
+                f32::NAN,
+            ],
+            f32::to_bits
+        );
+        assert_scalar_round_trip!(
+            Double,
+            [
+                3.5e100,
+                0.0,
+                -0.0,
+                f64::MIN_POSITIVE / 2.0,
+                f64::MIN,
+                f64::INFINITY,
+                f64::NAN,
+            ],
+            f64::to_bits
+        );
+    }
+
+    #[test]
+    #[expect(
+        clippy::little_endian_bytes,
+        reason = "BAM stores multi-byte numbers little-endian"
+    )]
     fn push_aux_preserves_all_array_values_for_target_and_raw_representations() {
         macro_rules! assert_array_round_trip {
             ($variant:ident, $values:expr, $tag:expr) => {{
@@ -1706,7 +1784,8 @@ mod tests {
         let aux_offset = record.qname_capacity() + record.seq_len().div_ceil(2) + record.seq_len();
         let data =
             unsafe { slice::from_raw_parts_mut(record.inner.data, record.inner.l_data as usize) };
-        data[aux_offset + 4..aux_offset + 8].copy_from_slice(&u32::MAX.to_le_bytes());
+        // Set the array count to u32::MAX, which is all 0xFF bytes in any byte order.
+        data[aux_offset + 4..aux_offset + 8].fill(0xFF);
 
         assert_eq!(record.aux(b"XA"), Err(Error::BamAuxParsingError));
         assert_eq!(record.aux(b"ZZ"), Err(Error::BamAuxParsingError));
@@ -1796,7 +1875,8 @@ mod tests {
         let aux_offset = record.qname_capacity() + record.seq_len().div_ceil(2) + record.seq_len();
         let data =
             unsafe { slice::from_raw_parts_mut(record.inner.data, record.inner.l_data as usize) };
-        data[aux_offset + 4..aux_offset + 8].copy_from_slice(&u32::MAX.to_le_bytes());
+        // Set the array count to u32::MAX, which is all 0xFF bytes in any byte order.
+        data[aux_offset + 4..aux_offset + 8].fill(0xFF);
         let before = record.data().to_vec();
 
         assert_eq!(record.remove_aux(b"ZZ"), Err(Error::BamAux));

@@ -15,7 +15,11 @@
 //! * keep structs whose fields Rust never reads opaque;
 //! * add every new concrete struct field and constant to both the C table and
 //!   the Rust test.
-#![allow(non_camel_case_types, non_upper_case_globals)]
+#![expect(
+    non_camel_case_types,
+    non_upper_case_globals,
+    reason = "FFI names match the HTSlib C headers"
+)]
 
 use libc::{c_char, c_int, c_short, c_uint, c_void};
 
