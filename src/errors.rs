@@ -1,93 +1,115 @@
+use std::fmt;
 use std::path::PathBuf;
-use thiserror::Error;
 
 /// Generic result type for functions in this crate with
 /// a global error class.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     // General errors
-    #[error("file not found: {path}")]
     FileNotFound { path: PathBuf },
-    #[error("file could not be opened: {path}")]
     FileOpen { path: String },
-    #[error("invalid (non-unicode) characters in path")]
     NonUnicodePath,
-    #[error("failed to fetch region")]
     Fetch,
-    #[error("error seeking to file offset")]
     FileSeek,
-    #[error("error setting threads for file reading")]
     SetThreads,
-    #[error("failed to create htslib thread pool")]
     ThreadPool,
 
-    #[error("failed to write BAM/BCF record (out of disk space?)")]
     WriteRecord,
-    #[error("failed to write SAM/BAM/CRAM header")]
     WriteHeader,
-    #[error("failed to close SAM/BAM/CRAM writer")]
     WriteClose,
 
     // Errors for faidx
-    #[error("failed to build index for fasta file {path:?}")]
     FaidxBuildFailed { path: std::path::PathBuf },
 
     // Errors for BAM
-    #[error("invalid path to CRAM-reference {path}")]
     BamInvalidReferencePath { path: PathBuf },
-    #[error("invalid compression level {level}")]
     BamInvalidCompressionLevel { level: u32 },
-    #[error("unable to open SAM/BAM/CRAM file at {target}")]
     BamOpen { target: String },
-    #[error("failed to initialize BAM header state")]
     BamHeader,
-    #[error("unable to open SAM/BAM/CRAM index for {target}; please create an index")]
     BamInvalidIndex { target: String },
-    #[error("invalid record in SAM/BAM/CRAM file")]
     BamInvalidRecord,
-    #[error("truncated record in SAM/BAM/CRAM file")]
     BamTruncatedRecord,
-    #[error("failed to read record from SAM/BAM/CRAM file")]
     BamRead,
-    #[error(
-        "format not indexable by htslib (format is detected as something else than SAM/BAM/CRAM)"
-    )]
     BamNotIndexable,
-    #[error("failed to write BAM/CRAM index (out of disk space?)")]
     BamWriteIndex,
-    #[error("failed to build BAM/CRAM index")]
     BamBuildIndex,
-    #[error("file is not sorted by position")]
     BamUnsorted,
-    #[error("failed to allocate SAM header text")]
     BamHeaderAllocation,
-    #[error("failed to parse SAM header")]
     BamHeaderParse,
-    #[error("virtual offsets are only supported for BAM files")]
     BamVirtualOffsetUnsupported,
 
     // Errors for BAM auxiliary fields
-    #[error("failed to add aux field (out of memory?)")]
     BamAux,
-    #[error("provided string contains internal 0 byte(s)")]
     BamAuxStringError,
-    #[error("failed to parse aux data")]
     BamAuxParsingError,
-    #[error("the specified tag does could not be found")]
     BamAuxTagNotFound,
-    #[error("data type of aux field is not known")]
     BamAuxUnknownType,
-    #[error("failed to add aux field, tag is already present")]
     BamAuxTagAlreadyPresent,
 
-    #[error("failed setting hts reading options")]
     HtsSetOpt,
-    #[error("failed calculating slow index statistics")]
     SlowIdxStats,
-    #[error("invalid tid {tid}")]
     InvalidTid { tid: i32 },
-    #[error("No sequences in the reference")]
     NoSequencesInReference,
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FileNotFound { path } => write!(f, "file not found: {}", path.display()),
+            Self::FileOpen { path } => write!(f, "file could not be opened: {path}"),
+            Self::NonUnicodePath => f.write_str("invalid (non-unicode) characters in path"),
+            Self::Fetch => f.write_str("failed to fetch region"),
+            Self::FileSeek => f.write_str("error seeking to file offset"),
+            Self::SetThreads => f.write_str("error setting threads for file reading"),
+            Self::ThreadPool => f.write_str("failed to create htslib thread pool"),
+            Self::WriteRecord => f.write_str("failed to write BAM/BCF record (out of disk space?)"),
+            Self::WriteHeader => f.write_str("failed to write SAM/BAM/CRAM header"),
+            Self::WriteClose => f.write_str("failed to close SAM/BAM/CRAM writer"),
+            Self::FaidxBuildFailed { path } => {
+                write!(f, "failed to build index for fasta file {path:?}")
+            }
+            Self::BamInvalidReferencePath { path } => {
+                write!(f, "invalid path to CRAM-reference {}", path.display())
+            }
+            Self::BamInvalidCompressionLevel { level } => {
+                write!(f, "invalid compression level {level}")
+            }
+            Self::BamOpen { target } => write!(f, "unable to open SAM/BAM/CRAM file at {target}"),
+            Self::BamHeader => f.write_str("failed to initialize BAM header state"),
+            Self::BamInvalidIndex { target } => write!(
+                f,
+                "unable to open SAM/BAM/CRAM index for {target}; please create an index"
+            ),
+            Self::BamInvalidRecord => f.write_str("invalid record in SAM/BAM/CRAM file"),
+            Self::BamTruncatedRecord => f.write_str("truncated record in SAM/BAM/CRAM file"),
+            Self::BamRead => f.write_str("failed to read record from SAM/BAM/CRAM file"),
+            Self::BamNotIndexable => f.write_str(
+                "format not indexable by htslib (format is detected as something else than SAM/BAM/CRAM)",
+            ),
+            Self::BamWriteIndex => f.write_str("failed to write BAM/CRAM index (out of disk space?)"),
+            Self::BamBuildIndex => f.write_str("failed to build BAM/CRAM index"),
+            Self::BamUnsorted => f.write_str("file is not sorted by position"),
+            Self::BamHeaderAllocation => f.write_str("failed to allocate SAM header text"),
+            Self::BamHeaderParse => f.write_str("failed to parse SAM header"),
+            Self::BamVirtualOffsetUnsupported => {
+                f.write_str("virtual offsets are only supported for BAM files")
+            }
+            Self::BamAux => f.write_str("failed to add aux field (out of memory?)"),
+            Self::BamAuxStringError => f.write_str("provided string contains internal 0 byte(s)"),
+            Self::BamAuxParsingError => f.write_str("failed to parse aux data"),
+            Self::BamAuxTagNotFound => f.write_str("the specified tag does could not be found"),
+            Self::BamAuxUnknownType => f.write_str("data type of aux field is not known"),
+            Self::BamAuxTagAlreadyPresent => {
+                f.write_str("failed to add aux field, tag is already present")
+            }
+            Self::HtsSetOpt => f.write_str("failed setting hts reading options"),
+            Self::SlowIdxStats => f.write_str("failed calculating slow index statistics"),
+            Self::InvalidTid { tid } => write!(f, "invalid tid {tid}"),
+            Self::NoSequencesInReference => f.write_str("No sequences in the reference"),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
