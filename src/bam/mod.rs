@@ -869,7 +869,7 @@ impl IndexedReader {
     }
 
     fn _fetch_by_str(&mut self, region: &[u8]) -> Result<()> {
-        let rstr = ffi::CString::new(region).unwrap();
+        let rstr = ffi::CString::new(region).map_err(|_| Error::Fetch)?;
         let rptr = rstr.as_ptr();
         let itr = unsafe {
             htslib::sam_itr_querys(
@@ -1597,7 +1597,7 @@ impl HeaderView {
     pub fn tid(&self, name: &[u8]) -> Option<u32> {
         self.ensure_normalized();
         unsafe {
-            let c_str = ffi::CString::new(name).expect("Expected valid name.");
+            let c_str = ffi::CString::new(name).ok()?;
             let tid = htslib::sam_hdr_name2tid(self.inner, c_str.as_ptr());
             if tid < 0 {
                 None
@@ -1634,7 +1634,7 @@ impl HeaderView {
     pub fn target_len(&self, tid: u32) -> Option<u64> {
         self.ensure_normalized();
         let inner = unsafe { *self.inner };
-        if (tid as i32) < inner.n_targets {
+        if tid < inner.n_targets as u32 {
             let l: &[u32] =
                 unsafe { slice::from_raw_parts(inner.target_len, inner.n_targets as usize) };
             Some(l[tid as usize] as u64)
@@ -1684,6 +1684,67 @@ mod tests {
 
     fn assert_send<T: Send>() {}
     fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn regression_target_len_rejects_out_of_range_ids() {
+        let header = HeaderView::from_bytes(b"@SQ\tSN:chr1\tLN:123\n");
+        assert_eq!(header.target_len(0), Some(123));
+        for tid in [1, i32::MAX as u32, 1_u32 << 31, u32::MAX] {
+            assert_eq!(header.target_len(tid), None);
+        }
+        assert_eq!(HeaderView::from_header(&Header::new()).target_len(0), None);
+    }
+
+    #[test]
+    fn regression_fetch_rejects_negative_complete_tid() {
+        let mut reader = IndexedReader::from_path("test/test.bam").unwrap();
+        assert_eq!(reader.fetch(-1_i32), Err(Error::Fetch));
+        assert_eq!(reader.fetch(i32::MIN), Err(Error::Fetch));
+        reader.fetch(0_u32).unwrap();
+        assert!(reader.records().count() > 0);
+    }
+
+    #[test]
+    fn regression_fetch_rejects_embedded_nul() {
+        let mut reader = IndexedReader::from_path("test/test.bam").unwrap();
+        assert_eq!(reader.header().tid(b"CHROMOSOME_I"), Some(0));
+        assert_eq!(reader.header().tid(b"CHROMOSOME_I\0x"), None);
+        assert_eq!(reader.fetch("CHROMOSOME_I\0x"), Err(Error::Fetch));
+        assert_eq!(reader.fetch(b"CHROMOSOME_I:1-2\0x"), Err(Error::Fetch));
+        assert_eq!(reader.fetch(("CHROMOSOME_I\0x", 0, 2)), Err(Error::Fetch));
+        reader.fetch(("CHROMOSOME_I", 0, 2)).unwrap();
+        assert_eq!(reader.records().count(), 6);
+    }
+
+    #[test]
+    fn regression_qname_limits_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("qnames.bam");
+        let mut writer = Writer::from_path(&path, &Header::new(), Format::Bam).unwrap();
+        for len in 251..=254 {
+            let name = vec![b'x'; len];
+            let mut record = Record::new();
+            record.set(&name, None, b"ACG", &[12, 23, 34]);
+            record.push_aux(b"NM", Aux::I32(7)).unwrap();
+            writer.write(&record).unwrap();
+            // Also round-trip the same long name through set_qname, exercising
+            // shrink and growth while preserving the sequence, quality, and aux data.
+            record.set_qname(b"short");
+            record.set_qname(&name);
+            writer.write(&record).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let mut reader = Reader::from_path(&path).unwrap();
+        let records: Vec<_> = reader.records().map(Result::unwrap).collect();
+        assert_eq!(records.len(), 8);
+        for (index, record) in records.iter().enumerate() {
+            assert_eq!(record.qname(), vec![b'x'; 251 + index / 2]);
+            assert_eq!(record.seq().as_bytes(), b"ACG");
+            assert_eq!(record.qual(), &[12, 23, 34]);
+            assert_eq!(record.aux(b"NM"), Ok(Aux::I32(7)));
+        }
+    }
 
     #[test]
     fn attached_reader_retains_shared_pool_across_threads() {

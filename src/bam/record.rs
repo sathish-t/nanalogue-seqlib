@@ -323,8 +323,8 @@ impl Record {
 
     /// Replace current qname with a new one.
     pub fn set_qname(&mut self, new_qname: &[u8]) {
-        // 251 + 1NUL is the max 32-bit aligned value that fits in u8
-        assert!(new_qname.len() < 252);
+        // BAM's u8 length includes the terminal NUL, but not alignment padding.
+        assert!(new_qname.len() < 255);
 
         let old_q_len = self.qname_capacity();
         // We're going to add a terminal NUL
@@ -334,7 +334,7 @@ impl Record {
         // Length of data after qname
         let other_len = self.inner_mut_unchecked().l_data - old_q_len as i32;
 
-        if new_q_len < old_q_len && self.inner().l_data > (old_q_len as i32) {
+        if new_q_len < old_q_len {
             self.inner_mut_unchecked().l_data -= (old_q_len - new_q_len) as i32;
         } else if new_q_len > old_q_len {
             self.inner_mut_unchecked().l_data += (new_q_len - old_q_len) as i32;
@@ -347,7 +347,7 @@ impl Record {
             }
         }
 
-        if new_q_len != old_q_len {
+        if new_q_len != old_q_len && other_len > 0 {
             // Move other data to new location
             unsafe {
                 let data = slice::from_raw_parts_mut(self.inner.data, self.inner().l_data as usize);
@@ -1289,9 +1289,9 @@ where
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let value = self.array.get(self.index);
+        let value = self.array.get(self.index)?;
         self.index += 1;
-        value
+        Some(value)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1611,6 +1611,57 @@ impl fmt::Display for CigarStringView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn regression_qname_only_shrink_has_no_aux_data() {
+        let mut record = Record::new();
+        record.set_qname(b"abcdefghijk");
+        for name in [b"a".as_slice(), b""] {
+            record.set_qname(name);
+            assert_eq!(record.qname(), name);
+            assert_eq!(record.aux(b"XX"), Err(Error::BamAuxTagNotFound));
+        }
+        record.push_aux(b"XX", Aux::I32(42)).unwrap();
+        assert_eq!(record.aux(b"XX"), Ok(Aux::I32(42)));
+    }
+
+    #[test]
+    fn regression_qname_setters_reject_255_bytes() {
+        let name = [b'x'; 255];
+        assert!(std::panic::catch_unwind(|| {
+            Record::new().set(&name, None, b"", b"");
+        })
+        .is_err());
+        assert!(std::panic::catch_unwind(|| {
+            Record::new().set_qname(&name);
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn regression_aux_array_size_hint_after_exhaustion() {
+        for values in [b"".as_slice(), &[3, 17, 251]] {
+            let array = AuxArray::from(values);
+            let mut record = Record::new();
+            record.push_aux(b"XA", Aux::ArrayU8(array)).unwrap();
+            let Aux::ArrayU8(raw_array) = record.aux(b"XA").unwrap() else {
+                panic!("expected an unsigned byte array");
+            };
+            for array in [&AuxArray::from(values), &raw_array] {
+                let mut iter = array.iter();
+                assert_eq!(iter.size_hint(), (values.len(), Some(values.len())));
+                for (index, value) in values.iter().enumerate() {
+                    assert_eq!(iter.next(), Some(*value));
+                    let remaining = values.len() - index - 1;
+                    assert_eq!(iter.size_hint(), (remaining, Some(remaining)));
+                }
+                for _ in 0..3 {
+                    assert_eq!(iter.next(), None);
+                    assert_eq!(iter.size_hint(), (0, Some(0)));
+                }
+            }
+        }
+    }
 
     #[test]
     fn read_aux_field_rejects_truncated_input() {
