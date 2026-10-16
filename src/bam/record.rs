@@ -510,6 +510,16 @@ impl Record {
         Err(Error::BamAuxTagNotFound)
     }
 
+    /// Iterate over auxiliary fields in record order.
+    ///
+    /// Each item contains the two-byte tag and its value. If a field cannot be
+    /// parsed, the iterator returns the error once and then terminates.
+    pub fn aux_iter(&self) -> AuxIter<'_> {
+        AuxIter {
+            aux: self.aux_data(),
+        }
+    }
+
     /// Remove an auxiliary field.
     ///
     /// Only the first two bytes of `tag` are used. Returns [`Error::BamAuxStringError`] if
@@ -1008,6 +1018,33 @@ impl genome::AbstractInterval for Record {
         }
 
         self.pos() as u64..end_pos
+    }
+}
+
+/// Iterator over the auxiliary fields of a [`Record`].
+///
+/// Created by [`Record::aux_iter`]. Iteration terminates after the first error.
+pub struct AuxIter<'a> {
+    aux: Result<&'a [u8]>,
+}
+
+impl<'a> Iterator for AuxIter<'a> {
+    type Item = Result<(&'a [u8], Aux<'a>)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Leave the iterator exhausted unless a complete field is decoded.
+        let aux = match std::mem::replace(&mut self.aux, Ok(&[])) {
+            Ok([]) => return None,
+            Ok(aux) => aux,
+            Err(error) => return Some(Err(error)),
+        };
+        Some((|| {
+            let tag = aux.get(..2).ok_or(Error::BamAuxParsingError)?;
+            let field = &aux[2..];
+            let (value, length) = Record::read_aux_field(field)?;
+            self.aux = Ok(field.get(length..).ok_or(Error::BamAuxParsingError)?);
+            Ok((tag, value))
+        })())
     }
 }
 
@@ -1611,6 +1648,81 @@ impl fmt::Display for CigarStringView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn aux_iter_preserves_tag_order_and_values() {
+        let mut record = Record::new();
+        assert_eq!(record.aux_iter().next(), None);
+        let cigar = CigarString(vec![Cigar::Match(3)]);
+        record.set(b"read-name", Some(&cigar), b"ACT", &[17, 28, 39]);
+        assert_eq!(record.aux_iter().next(), None);
+        let values = [-32768i16, 257, -3];
+        let empty: &[f32] = &[];
+        record.push_aux(b"NM", Aux::U8(7)).unwrap();
+        record.push_aux(b"ZZ", Aux::String("hello")).unwrap();
+        record
+            .push_aux(b"BA", Aux::ArrayI16(values.as_slice().into()))
+            .unwrap();
+        record.push_aux(b"ZE", Aux::String("")).unwrap();
+        record
+            .push_aux(b"BE", Aux::ArrayFloat(empty.into()))
+            .unwrap();
+        record.push_aux(b"AS", Aux::I32(-123456)).unwrap();
+        let fields = [
+            (b"NM", Aux::U8(7)),
+            (b"ZZ", Aux::String("hello")),
+            (b"BA", Aux::ArrayI16(values.as_slice().into())),
+            (b"ZE", Aux::String("")),
+            (b"BE", Aux::ArrayFloat(empty.into())),
+            (b"AS", Aux::I32(-123456)),
+        ];
+        let mut iter: AuxIter<'_> = record.aux_iter();
+        for (tag, value) in fields {
+            assert_eq!(iter.next(), Some(Ok((tag.as_slice(), value))));
+        }
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn aux_iter_stops_after_malformed_or_truncated_data() {
+        // Exercise every nonempty truncated prefix, including partial tags,
+        // type codes, array counts, and payloads.
+        let fields: &[&[u8]] = &[
+            b"XXi\x01\x02\x03\x04",
+            b"XXZhello\0",
+            b"XXBs\x02\0\0\0\x01\0\x02\0",
+        ];
+        let malformed: [(&[u8], Error); 3] = [
+            (b"XX?YYC\x07", Error::BamAuxUnknownType),
+            (b"XXB?\0\0\0\0YYC\x07", Error::BamAuxUnknownType),
+            (b"XXZ\xff\0YYC\x07", Error::BamAuxParsingError),
+        ];
+        let truncated = fields.iter().flat_map(|field| {
+            (1..field.len()).map(move |len| (&field[..len], Error::BamAuxParsingError))
+        });
+        for (bytes, error) in truncated.chain(malformed) {
+            let mut record = Record::new();
+            record.push_aux(b"OK", Aux::U8(19)).unwrap();
+            let offset = record.inner().l_data as usize;
+            record
+                .push_aux(b"XX", Aux::String("space for malformed aux data"))
+                .unwrap();
+            // Keep the allocation and record layout intact, replacing only
+            // the auxiliary bytes through the public raw-record interface.
+            unsafe {
+                let raw = record.inner_mut();
+                assert!(offset + bytes.len() <= raw.l_data as usize);
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), raw.data.add(offset), bytes.len());
+                raw.l_data = (offset + bytes.len()) as i32;
+            }
+            let mut iter = record.aux_iter();
+            assert_eq!(iter.next(), Some(Ok((b"OK".as_slice(), Aux::U8(19)))));
+            assert_eq!(iter.next(), Some(Err(error)), "{bytes:?}");
+            assert_eq!(iter.next(), None, "{bytes:?}");
+            assert_eq!(iter.next(), None, "{bytes:?}");
+        }
+    }
 
     #[test]
     fn regression_qname_only_shrink_has_no_aux_data() {
